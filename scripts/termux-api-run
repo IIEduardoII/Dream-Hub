@@ -1,0 +1,21 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+mkdir -p "$HOME/.local/share/nexus/log/api"
+export NEXUS_DB="$HOME/nexus-termux/nexus.db"
+
+# Usar venv do nexus-termux se disponível ou gunicorn global
+if [ -x "$HOME/nexus-termux/.venv/bin/gunicorn" ]; then
+    GUNICORN_BIN="$HOME/nexus-termux/.venv/bin/gunicorn"
+else
+    GUNICORN_BIN="gunicorn"
+fi
+
+exec "$GUNICORN_BIN" \
+    --chdir "$HOME/nexus-termux" \
+    --bind 127.0.0.1:8001 \
+    --workers 1 \
+    --threads 2 \
+    --timeout 60 \
+    --access-logfile - \
+    --error-logfile - \
+    backend.app:app

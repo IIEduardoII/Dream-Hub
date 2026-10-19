@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Dream Hub - Gestão Pessoal</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#090b10">
+  <meta name="description" content="Sistema autônomo e unificado para Tarefas, Tempo, Finanças e Ideias">
+  <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+  <!-- Top App Header -->
+  <header class="app-header">
+    <div class="brand-area">
+      <img src="/icons/icon.svg" alt="Dream Hub Logo" class="brand-logo">
+      <h1 class="brand-title">DREAM HUB</h1>
+    </div>
+    <div class="header-status">
+      <span class="status-dot" id="status-indicator" title="Conexão com servidor local ativa"></span>
+      <span class="date-display" id="header-date">--/--</span>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-content">
+
+    <!-- 1. VISÃO GERAL (OVERVIEW) -->
+    <section id="view-overview" class="view-section active">
+      <div class="metrics-grid">
+        <div class="metric-card metric-tasks">
+          <div class="metric-label">Tarefas Pendentes</div>
+          <div class="metric-value" id="ov-pending-tasks">0</div>
+          <div class="metric-sub" id="ov-urgent-tasks">0 urgentes</div>
+        </div>
+        <div class="metric-card metric-time">
+          <div class="metric-label">Foco Hoje</div>
+          <div class="metric-value" id="ov-focus-min">0m</div>
+          <div class="metric-sub" id="ov-focus-sessions">0 ciclos</div>
+        </div>
+        <div class="metric-card metric-finance">
+          <div class="metric-label">Saldo do Mês</div>
+          <div class="metric-value" id="ov-balance">R$ 0,00</div>
+          <div class="metric-sub" id="ov-finance-flow">+0 | -0</div>
+        </div>
+        <div class="metric-card metric-ideas">
+          <div class="metric-label">Segundo Cérebro</div>
+          <div class="metric-value" id="ov-ideas-count">0</div>
+          <div class="metric-sub">ideias ativas</div>
+        </div>
+      </div>
+
+      <!-- Quick Action Buttons -->
+      <div class="card">
+        <div class="card-title">Ações Rápidas</div>
+        <div class="actions-bar">
+          <button class="btn btn-tasks btn-sm" onclick="App.openTaskModal()">+ Tarefa</button>
+          <button class="btn btn-time btn-sm" onclick="App.navigateTo('time')">⏱ Pomodoro</button>
+          <button class="btn btn-finance btn-sm" onclick="App.openFinanceModal()">+ Transação</button>
+          <button class="btn btn-ideas btn-sm" onclick="App.openIdeaModal()">💡 Nova Ideia</button>
+        </div>
+      </div>
+
+      <!-- Upcoming Urgent Tasks -->
+      <div class="card">
+        <div class="card-title">
+          <span>Prioridades Imediatas</span>
+          <button class="btn btn-secondary btn-sm" onclick="App.navigateTo('tasks')">Ver Todas</button>
+        </div>
+        <div id="ov-urgent-list">
+          <div class="skeleton"></div>
+          <div class="skeleton"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. TAREFAS (TASKS) -->
+    <section id="view-tasks" class="view-section">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h2 style="font-size:1.25rem; font-weight:700;">Tarefas</h2>
+        <button class="btn btn-tasks" onclick="App.openTaskModal()">+ Nova Tarefa</button>
+      </div>
+
+      <!-- View Switcher & Filters -->
+      <div class="view-switch">
+        <button class="switch-btn active" id="btn-kanban-mode" onclick="App.setTaskMode('kanban')">Quadro Kanban</button>
+        <button class="switch-btn" id="btn-list-mode" onclick="App.setTaskMode('list')">Modo Lista</button>
+      </div>
+
+      <div class="actions-bar" id="task-filter-bar">
+        <button class="stage-pill active" onclick="App.filterTasks('priority', 'all', this)">Todas</button>
+        <button class="stage-pill" onclick="App.filterTasks('priority', 'urgent', this)">Urgente</button>
+        <button class="stage-pill" onclick="App.filterTasks('priority', 'high', this)">Alta</button>
+        <button class="stage-pill" onclick="App.filterTasks('priority', 'medium', this)">Média</button>
+        <button class="stage-pill" onclick="App.filterTasks('priority', 'low', this)">Baixa</button>
+      </div>
+
+      <!-- Kanban Board -->
+      <div id="tasks-kanban-container" class="kanban-board">
+        <div class="kanban-col" id="col-todo">
+          <div class="col-header">
+            <span>A Fazer</span>
+            <span class="col-count" id="count-todo">0</span>
+          </div>
+          <div class="col-tasks" id="tasks-list-todo"></div>
+        </div>
+
+        <div class="kanban-col" id="col-in_progress">
+          <div class="col-header">
+            <span>Em Execução</span>
+            <span class="col-count" id="count-in_progress">0</span>
+          </div>
+          <div class="col-tasks" id="tasks-list-in_progress"></div>
+        </div>
+
+        <div class="kanban-col" id="col-done">
+          <div class="col-header">
+            <span>Concluído</span>
+            <span class="col-count" id="count-done">0</span>
+          </div>
+          <div class="col-tasks" id="tasks-list-done"></div>
+        </div>
+      </div>
+
+      <!-- Flat List View Container -->
+      <div id="tasks-flat-container" style="display:none;"></div>
+    </section>
+
+    <!-- 3. TEMPO & POMODORO (TIME) -->
+    <section id="view-time" class="view-section">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h2 style="font-size:1.25rem; font-weight:700;">Gestão de Tempo</h2>
+      </div>
+
+      <div class="timer-container">
+        <!-- Mode Switcher -->
+        <div class="timer-mode-selector">
+          <button class="timer-mode-btn active" id="btn-mode-focus" onclick="App.setTimerMode('focus')">Foco</button>
+          <button class="timer-mode-btn" id="btn-mode-short" onclick="App.setTimerMode('short_break')">Pausa Curta (5m)</button>
+          <button class="timer-mode-btn" id="btn-mode-long" onclick="App.setTimerMode('long_break')">Pausa Longa (15m)</button>
+        </div>
+
+        <!-- Focus Duration Presets & Custom Pill -->
+        <div id="focus-durations-bar" style="display:flex; gap:6px; flex-wrap:wrap; justify-content:center; align-items:center; margin-bottom:12px;">
+          <span style="font-size:0.75rem; color:var(--text-muted); margin-right:2px;">TEMPO:</span>
+          <button class="stage-pill" id="dur-pill-15" onclick="App.setCustomFocusDuration(15)">15m</button>
+          <button class="stage-pill active" id="dur-pill-25" onclick="App.setCustomFocusDuration(25)">25m</button>
+          <button class="stage-pill" id="dur-pill-45" onclick="App.setCustomFocusDuration(45)">45m</button>
+          <button class="stage-pill" id="dur-pill-50" onclick="App.setCustomFocusDuration(50)">50m</button>
+          <button class="stage-pill" id="dur-pill-60" onclick="App.setCustomFocusDuration(60)">60m</button>
+          <button class="stage-pill" id="dur-pill-custom" onclick="App.promptCustomDuration()">Outro ✎</button>
+        </div>
+
+        <!-- Task Link Selector & Auto-Duration Feedback -->
+        <div class="timer-task-linked" style="width:100%; max-width:400px; margin-bottom:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <label for="timer-task-select" style="font-size:0.75rem; color:var(--text-muted);">VINCULAR À TAREFA:</label>
+            <span id="timer-task-duration-badge" style="font-size:0.75rem; color:var(--accent-time); font-weight:600;"></span>
+          </div>
+          <select id="timer-task-select" class="form-select" style="min-height:38px; font-size:0.875rem;" onchange="App.onTaskSelectedForTimer(this.value)">
+            <option value="">(Nenhuma tarefa selecionada)</option>
+          </select>
+        </div>
+
+        <!-- Clock Face with +/- Adjustment Buttons -->
+        <div style="display:flex; align-items:center; justify-content:center; gap:16px; margin: 4px 0 16px 0;">
+          <button class="btn btn-secondary btn-sm" style="min-height:38px; min-width:38px; font-family:var(--font-mono); font-size:0.875rem; border-radius:50%;" title="Reduzir 5 minutos" onclick="App.adjustTimerDuration(-5)">-5m</button>
+          <div class="timer-clock" id="timer-display" style="margin:0;">25:00</div>
+          <button class="btn btn-secondary btn-sm" style="min-height:38px; min-width:38px; font-family:var(--font-mono); font-size:0.875rem; border-radius:50%;" title="Adicionar 5 minutos" onclick="App.adjustTimerDuration(5)">+5m</button>
+        </div>
+
+        <!-- Timer Controls -->
+        <div class="timer-controls">
+          <button class="btn btn-time" id="btn-timer-toggle" onclick="App.toggleTimer()">Iniciar Foco</button>
+          <button class="btn btn-secondary" onclick="App.resetTimer()">Reiniciar</button>
+        </div>
+      </div>
+
+      <!-- Today's Session History -->
+      <div class="card">
+        <div class="card-title">Sessões Concluídas Hoje</div>
+        <div id="time-sessions-list">
+          <div class="skeleton"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. GESTÃO FINANCEIRA (FINANCE) -->
+    <section id="view-finance" class="view-section">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h2 style="font-size:1.25rem; font-weight:700;">Finanças Pessoais</h2>
+        <button class="btn btn-finance" onclick="App.openFinanceModal()">+ Novo Lançamento</button>
+      </div>
+
+      <!-- Month Selector & Summary Card -->
+      <div class="finance-balance-card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <span class="balance-title">Saldo Líquido</span>
+          <input type="month" id="finance-month-input" class="form-input" style="width:auto; min-height:36px; padding:4px 8px;" onchange="App.loadFinanceData()">
+        </div>
+        <div class="balance-amount" id="fin-net-balance">R$ 0,00</div>
+        <div class="balance-flow">
+          <div class="flow-col">
+            <div class="flow-label">Receitas (+)</div>
+            <div class="flow-val flow-income" id="fin-total-income">R$ 0,00</div>
+          </div>
+          <div class="flow-col">
+            <div class="flow-label">Despesas (-)</div>
+            <div class="flow-val flow-expense" id="fin-total-expense">R$ 0,00</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Categories Breakdown -->
+      <div class="card" id="finance-breakdown-card" style="display:none;">
+        <div class="card-title">Despesas por Categoria</div>
+        <div id="fin-categories-list" style="display:flex; flex-direction:column; gap:8px;"></div>
+      </div>
+
+      <!-- Transactions List -->
+      <div class="card">
+        <div class="card-title">Extrato de Lançamentos</div>
+        <div id="finance-transactions-list">
+          <div class="skeleton"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. ORGANIZAÇÃO DE IDEIAS (IDEAS) -->
+    <section id="view-ideas" class="view-section">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h2 style="font-size:1.25rem; font-weight:700;">Segundo Cérebro</h2>
+        <button class="btn btn-ideas" onclick="App.openIdeaModal()">+ Nova Ideia</button>
+      </div>
+
+      <!-- Search & Stage Filters -->
+      <div class="form-group" style="margin-bottom:10px;">
+        <input type="search" id="ideas-search-input" class="form-input" placeholder="Buscar por ideias ou tags..." oninput="App.searchIdeas(this.value)">
+      </div>
+
+      <div class="ideas-filter-bar">
+        <button class="stage-pill active" onclick="App.filterIdeas('all', this)">Todas</button>
+        <button class="stage-pill" onclick="App.filterIdeas('raw', this)">Rascunho</button>
+        <button class="stage-pill" onclick="App.filterIdeas('evaluating', this)">Em Análise</button>
+        <button class="stage-pill" onclick="App.filterIdeas('in_action', this)">Em Execução</button>
+        <button class="stage-pill" onclick="App.filterIdeas('archived', this)">Arquivado</button>
+      </div>
+
+      <!-- Ideas Grid -->
+      <div id="ideas-list-container">
+        <div class="skeleton"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Bottom Navigation Bar -->
+  <nav class="bottom-nav">
+    <button class="nav-item nav-overview active" onclick="App.navigateTo('overview')">
+      <span class="nav-icon">📊</span>
+      <span class="nav-label">Início</span>
+    </button>
+    <button class="nav-item nav-tasks" onclick="App.navigateTo('tasks')">
+      <span class="nav-icon">✓</span>
+      <span class="nav-label">Tarefas</span>
+    </button>
+    <button class="nav-item nav-time" onclick="App.navigateTo('time')">
+      <span class="nav-icon">⏱</span>
+      <span class="nav-label">Tempo</span>
+    </button>
+    <button class="nav-item nav-finance" onclick="App.navigateTo('finance')">
+      <span class="nav-icon">💰</span>
+      <span class="nav-label">Finanças</span>
+    </button>
+    <button class="nav-item nav-ideas" onclick="App.navigateTo('ideas')">
+      <span class="nav-icon">💡</span>
+      <span class="nav-label">Ideias</span>
+    </button>
+  </nav>
+
+  <!-- ======================== MODALS ======================== -->
+
+  <!-- Modal: Nova / Editar Tarefa -->
+  <div id="modal-task" class="modal-overlay">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-task-title">Nova Tarefa</h3>
+        <button class="modal-close" onclick="App.closeModals()">&times;</button>
+      </div>
+      <form id="form-task" onsubmit="App.saveTask(event)">
+        <input type="hidden" id="task-id">
+        <div class="form-group">
+          <label class="form-label" for="task-title-input">Título da Tarefa *</label>
+          <input type="text" id="task-title-input" class="form-input" required placeholder="Ex: Organizar recibos do mês">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="task-desc-input">Descrição / Critérios</label>
+          <textarea id="task-desc-input" class="form-textarea" placeholder="Detalhes, links ou checklist..."></textarea>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group">
+            <label class="form-label" for="task-priority-select">Prioridade</label>
+            <select id="task-priority-select" class="form-select">
+              <option value="low">Baixa</option>
+              <option value="medium" selected>Média</option>
+              <option value="high">Alta</option>
+              <option value="urgent">Urgente</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="task-status-select">Status</label>
+            <select id="task-status-select" class="form-select">
+              <option value="todo" selected>A Fazer</option>
+              <option value="in_progress">Em Execução</option>
+              <option value="done">Concluído</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group">
+            <label class="form-label" for="task-due-input">Prazo Limite</label>
+            <input type="date" id="task-due-input" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="task-pomodoros-input">Qtd. Pomodoros</label>
+            <input type="number" id="task-pomodoros-input" class="form-input" min="1" max="50" value="1">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="task-duration-input">Duração de cada Foco (minutos)</label>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <input type="number" id="task-duration-input" class="form-input" min="1" max="180" value="25" style="max-width:110px;">
+            <div style="display:flex; gap:4px; flex-wrap:wrap;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('task-duration-input').value=15">15m</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('task-duration-input').value=25">25m</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('task-duration-input').value=45">45m</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('task-duration-input').value=50">50m</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('task-duration-input').value=60">60m</button>
+            </div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="task-category-input">Categoria / Projeto</label>
+          <input type="text" id="task-category-input" class="form-input" placeholder="Ex: Trabalho, Casa, Pessoal" value="Geral">
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+          <button type="button" class="btn btn-danger btn-sm" id="btn-delete-task-modal" style="display:none;" onclick="App.deleteCurrentModalTask()">🗑 Excluir</button>
+          <div style="display:flex; gap:10px; margin-left:auto;">
+            <button type="button" class="btn btn-secondary" onclick="App.closeModals()">Cancelar</button>
+            <button type="submit" class="btn btn-tasks">Salvar Tarefa</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Nova Transação Financeira -->
+  <div id="modal-finance" class="modal-overlay">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 class="modal-title">Novo Lançamento</h3>
+        <button class="modal-close" onclick="App.closeModals()">&times;</button>
+      </div>
+      <form id="form-finance" onsubmit="App.saveTransaction(event)">
+        <div class="form-group">
+          <label class="form-label">Tipo de Movimentação</label>
+          <div class="view-switch">
+            <button type="button" class="switch-btn active" id="btn-txn-expense" onclick="App.setTxnType('expense')">Despesa (-)</button>
+            <button type="button" class="switch-btn" id="btn-txn-income" onclick="App.setTxnType('income')">Receita (+)</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="fin-desc-input">Descrição *</label>
+          <input type="text" id="fin-desc-input" class="form-input" required placeholder="Ex: Almoço, Internet, Salário">
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group">
+            <label class="form-label" for="fin-amount-input">Valor (R$) *</label>
+            <input type="number" step="0.01" min="0.01" id="fin-amount-input" class="form-input" required placeholder="0,00">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="fin-date-input">Data</label>
+            <input type="date" id="fin-date-input" class="form-input" required>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group">
+            <label class="form-label" for="fin-category-select">Categoria</label>
+            <select id="fin-category-select" class="form-select">
+              <option value="Alimentação">Alimentação</option>
+              <option value="Moradia">Moradia</option>
+              <option value="Transporte">Transporte</option>
+              <option value="Lazer">Lazer</option>
+              <option value="Saúde">Saúde</option>
+              <option value="Salário">Salário</option>
+              <option value="Investimento">Investimento</option>
+              <option value="Educação">Educação</option>
+              <option value="Outros" selected>Outros</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="fin-account-select">Conta / Carteira</label>
+            <select id="fin-account-select" class="form-select">
+              <option value="Carteira">Carteira (Dinheiro)</option>
+              <option value="Conta Corrente" selected>Conta Corrente / PIX</option>
+              <option value="Cartão de Crédito">Cartão de Crédito</option>
+              <option value="Reserva">Reserva de Emergência</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="App.closeModals()">Cancelar</button>
+          <button type="submit" class="btn btn-finance">Registrar Lançamento</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Nova / Editar Ideia -->
+  <div id="modal-idea" class="modal-overlay">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-idea-title">Nova Ideia</h3>
+        <button class="modal-close" onclick="App.closeModals()">&times;</button>
+      </div>
+      <form id="form-idea" onsubmit="App.saveIdea(event)">
+        <input type="hidden" id="idea-id">
+        <div class="form-group">
+          <label class="form-label" for="idea-title-input">Título do Insight / Projeto *</label>
+          <input type="text" id="idea-title-input" class="form-input" required placeholder="Ex: Sistema de automação residencial">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="idea-stage-select">Estágio de Maturação</label>
+          <select id="idea-stage-select" class="form-select">
+            <option value="raw" selected>Rascunho (Ideia Bruta)</option>
+            <option value="evaluating">Em Análise / Pesquisa</option>
+            <option value="in_action">Em Execução</option>
+            <option value="archived">Arquivado</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="idea-content-input">Anotações e Conteúdo (Markdown)</label>
+          <textarea id="idea-content-input" class="form-textarea" style="min-height:120px;" placeholder="Escreva hipóteses, referências, comandos ou links..."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="idea-tags-input">Tags (separadas por vírgula)</label>
+          <input type="text" id="idea-tags-input" class="form-input" placeholder="Ex: dev, casa, leitura, finanças">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="App.closeModals()">Cancelar</button>
+          <button type="submit" class="btn btn-ideas">Salvar Ideia</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
