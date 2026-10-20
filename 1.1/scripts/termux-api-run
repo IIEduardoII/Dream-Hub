@@ -1,0 +1,27 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+mkdir -p "$HOME/.local/share/nexus/log/api"
+export NEXUS_DB="$HOME/nexus-termux/nexus.db"
+
+# Impede o Android de suspender o processador com a tela desligada ([RNF05])
+command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || true
+
+# Usar venv do nexus-termux ou fallback para o venv compartilhado já existente
+if [ -x "$HOME/nexus-termux/.venv/bin/gunicorn" ]; then
+    GUNICORN_BIN="$HOME/nexus-termux/.venv/bin/gunicorn"
+elif [ -x "$HOME/ritmo-termux/.venv/bin/gunicorn" ]; then
+    GUNICORN_BIN="$HOME/ritmo-termux/.venv/bin/gunicorn"
+else
+    GUNICORN_BIN="gunicorn"
+fi
+
+exec "$GUNICORN_BIN" \
+    --chdir "$HOME/nexus-termux" \
+    --bind 127.0.0.1:8001 \
+    --workers 1 \
+    --threads 2 \
+    --max-requests 500 \
+    --timeout 60 \
+    --access-logfile - \
+    --error-logfile - \
+    backend.app:app

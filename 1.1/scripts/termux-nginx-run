@@ -1,0 +1,4 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+mkdir -p "$HOME/.local/share/nexus/log/nginx"
+exec "$PREFIX/bin/nginx" -c "$HOME/nexus-termux/nginx-nexus.conf" -g 'daemon off;'

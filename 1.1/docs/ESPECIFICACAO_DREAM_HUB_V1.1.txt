@@ -1,0 +1,406 @@
+================================================================================
+                                   DREAM-HUB
+     Central Pessoal de Produtividade, Tempo, Atividades, Finanças e Ideias
+ ESPECIFICAÇÃO DE REQUISITOS, ARQUITETURA TÉCNICA E PLANO DE ENGENHARIA DE SOFTWARE
+================================================================================
+
+Autor do Projeto:      Autor do Projeto
+Repositório Oficial:   https://github.com/IIEduardoII/Dream-Hub
+Ambiente de Execução:  Android / Termux (Nginx, Gunicorn, SQLite WAL, Tailscale)
+Status do Projeto:     Em produção / Refatoração e Levantamento de Requisitos
+Data da Documentação:  Outubro de 2026 • Versão 1.0.0
+
+================================================================================
+1. SUMÁRIO EXECUTIVO E VISÃO GERAL DO SISTEMA
+================================================================================
+
+O Dream-Hub é uma plataforma unificada de produtividade e gestão pessoal baseada
+na filosofia Local-First e Personal Cloud Edge. O sistema centraliza quatro
+pilares operacionais vitais:
+  1. Gestão de Tempo (Sessões de Foco e Pomodoro nativo)
+  2. Gestão de Atividades (Tarefas, Projetos e Recorrências)
+  3. Gestão Financeira (Receitas, Despesas e Fluxo de Caixa Mensal)
+  4. Incubadora de Ideias (Brain Dump, Notas Rápidas e Conversão em Ações)
+
+Diferente de soluções convencionais de terceiros (como Notion, Todoist ou Mobills),
+o Dream-Hub opera de maneira soberana diretamente no hardware do próprio usuário:
+um smartphone Android executando Termux, orquestrado com Nginx, Gunicorn e
+SQLite 3 com Write-Ahead Logging (WAL). O acesso remoto é privado e criptografado
+ponto a ponto via malha Tailscale (WireGuard), sem exposição à internet pública.
+
+---
+[FILOSOFIA DE SOBERANIA E EDGE COMPUTING]
+A premissa fundamental do Dream-Hub é a soberania absoluta dos dados e o custo
+zero de infraestrutura na nuvem: o smartphone que o usuário já carrega no bolso
+atua como servidor 24/7 de alta confiabilidade, dispensando assinaturas, evitando
+telemetria invasiva e viabilizando latências de resposta em milissegundos na rede
+local/VPN.
+---
+
+1.1 DIAGNÓSTICO CRÍTICO: O QUE COSTUMA FALTAR EM SISTEMAS GERADOS POR IA?
+--------------------------------------------------------------------------------
+O código inicial do Dream-Hub foi concebido com apoio de agentes autônomos de IA.
+Embora modelos de IA sejam eficientes para gerar rotas básicas de CRUD, eles
+sistematicamente incorrem em vícios arquiteturais que justificam esta refatoração:
+
+1. Fragmentação Funcional em Silos Isolados:
+   Agentes de IA tendem a criar quatro telas independentes que não dialogam. Na
+   prática, uma ideia anotada deve virar uma tarefa com 1 clique; uma sessão de
+   Pomodoro deve acumular tempo diretamente em uma tarefa ativa; e uma tarefa
+   ou projeto precisa poder apontar custos financeiros atrelados.
+
+2. Ausência de Cockpit Unificado ("Meu Dia"):
+   Falta uma tela agregadora inicial. O usuário não deve ter que navegar por 4
+   módulos diferentes para entender seu dia. Ele precisa de resposta em 3 segundos:
+   - "Quais tarefas vencem hoje?"
+   - "Quanto tempo foquei hoje?"
+   - "Qual o meu saldo disponível do mês?"
+   - Um botão universal de anotação rápida.
+
+3. Atrito na Captura Rápida (Zero-Friction Quick Capture):
+   Anotar uma ideia na rua ou lançar uma despesa rápida de café precisa de no
+   máximo 2 toques. Exigir navegação profunda causa fadiga cognitiva e leva ao
+   abandono do sistema.
+
+4. Negligência com o Ciclo de Vida do Sistema Operacional Móvel:
+   O Android possui mecanismos agressivos de economia de bateria (OOM Killer, CPU
+   sleep, descarte de processos em segundo plano). Aplicações comuns ignoram o
+   wake-lock permanente, a supervisão de daemons com Runit e a configuração de
+   checkpoints do SQLite WAL, causando instabilidade e corrupção silenciosa.
+
+5.Adicionar um gasto recorrente/depósito, invés de precisa adicionar todo gasto ou depósito manualmente poder adicionar um recorrente
+
+================================================================================
+2. ARQUITETURA TÉCNICA E ENGENHARIA DE INFRAESTRUTURA
+================================================================================
+
+O Dream-Hub foi calibrado para operar com consumo ultrabaixo de memória RAM,
+estabilidade perene e máxima autonomia de bateria no celular.
+
++-----------------------+-----------------------------+------------------------+
+| Camada / Componente   | Tecnologia Selecionada      | Justificativa Técnica  |
++-----------------------+-----------------------------+------------------------+
+| Backend & API         | Python 3 + Flask + Gunicorn | Consumo < 45 MB RSS.   |
+|                       |                             | 1 worker, 2 threads.   |
+| Banco de Dados        | SQLite 3 (Modo WAL)         | Leituras simultâneas   |
+|                       |                             | sem bloqueio de escrita|
+| Web Server & Proxy    | Nginx (Termux)              | Cache de estáticos e   |
+|                       |                             | filtro IP restrito.    |
+| Frontend & UI         | HTML5 + CSS3 (OLED Dark)    | Zero build step. Fundo |
+|                       |                             | #000000, toque >= 44px.|
+| Lógica Client-Side    | Vanilla JavaScript (ES6+)   | Roteador SPA por hash, |
+|                       |                             | estado reativo simples.|
+| Recursos Web Nativos  | Web Audio API + PWA         | Síntese de bips sem MP3|
+|                       |                             | e instalação em tela.  |
+| Rede & Segurança      | Tailscale (WireGuard VPN)   | Tráfego restrito à     |
+|                       |                             | faixa 100.64.0.0/10.   |
++-----------------------+-----------------------------+------------------------+
+
+2.1 TOPOLOGIA DE REDE E CAMADA DE SEGURANÇA (TAILSCALE)
+--------------------------------------------------------------------------------
+- Criptografia Ponto a Ponto: O celular e os dispositivos autorizados operam
+  na malha privada (Tailnet) sob a faixa 100.64.0.0/10.
+- Bloqueio de Portas Públicas: O Nginx não escuta na internet aberta e não requer
+  redirecionamento de portas no roteador (UPnP). O acesso externo via Wi-Fi público
+  ou rede móvel recebe resposta HTTP 403 Forbidden.
+
+2.2 OTIMIZAÇÕES SQLITE PARA CONCORRÊNCIA NO ANDROID
+--------------------------------------------------------------------------------
+Toda conexão SQLite deve inicializar com os seguintes parâmetros para evitar
+erros de "database is locked":
+
+  PRAGMA journal_mode = WAL;         -- Leituras não bloqueiam escritas
+  PRAGMA synchronous = NORMAL;       -- Balanço ideal entre velocidade e integridade
+  PRAGMA foreign_keys = ON;          -- Integridade referencial obrigatória
+  PRAGMA temp_store = MEMORY;        -- Tabelas temporárias em RAM
+  PRAGMA cache_size = -8000;         -- 8MB de cache alocado em RAM
+  PRAGMA busy_timeout = 5000;        -- Espera até 5s por liberação de trava
+
+================================================================================
+3. LEVANTAMENTO COMPLETO DE REQUISITOS
+================================================================================
+
+3.1 REQUISITOS FUNCIONAIS (RF) - MÉTODO MOSCOW
+--------------------------------------------------------------------------------
+[RF01] Painel Consolidado "Meu Dia" (Cockpit) [MUST]
+  - Descrição: Tela inicial consolidando tarefas que vencem hoje, saldo financeiro
+    mensal líquido, minutos de foco acumulados no dia e ideias pendentes.
+  - Teste: Acessar a raiz "/" e visualizar as 4 métricas atualizadas sem refresh.
+
+[RF02] Quick Capture Modal Global [MUST]
+  - Descrição: Botão flutuante (FAB) presente em todas as abas que abre janela
+    para salvar com 1 toque: Nova Ideia, Nova Despesa ou Nova Tarefa.
+  - Teste: Acionar o botão a partir de qualquer tela e registrar um item em < 3s.
+
+[RF03] Timer Pomodoro Nativo [MUST]
+  - Descrição: Temporizador de blocos de foco (25 min) e pausas (5/15 min).
+  - Teste: Manter contagem precisa via timestamp mesmo se a tela for desligada.
+
+[RF04] Alerta Sonoro via Web Audio API [MUST]
+  - Descrição: Síntese de bips senoidais suaves ao término dos ciclos de foco.
+  - Teste: Tocar o som sem requisições HTTP adicionais ou arquivos MP3 na rede.
+
+[RF05] Vinculação de Tempo a Tarefas [SHOULD]
+  - Descrição: Vincular a sessão de foco ativa a uma tarefa pré-cadastrada.
+  - Teste: Finalizar um bloco de 25 min e conferir o incremento no campo
+    completed_pomodoros da tarefa.
+
+[RF06] CRUD de Atividades com Matriz de Prioridade [MUST]
+  - Descrição: Criação, listagem e conclusão de tarefas com status (pendente,
+    em_progresso, concluida) e prioridades (baixa, media, alta).
+  - Teste: Filtrar tarefas pendentes ordenadas por prioridade decrescente.
+
+[RF07] Recorrência Automática de Tarefas [SHOULD]
+  - Descrição: Ao concluir uma tarefa diária, semanal ou mensal, criar de forma
+    automática o registro clonado para o próximo ciclo.
+  - Teste: Concluir tarefa diária e constatar nova tarefa idêntica para D+1.
+
+[RF08] Lançamento de Transações Financeiras [MUST]
+  - Descrição: Registro de receitas e despesas com valor, categoria, data e nota.
+  - Teste: Inserir transação e verificar persistência imediata no SQLite.
+
+[RF09] Balanço Mensal e Saldo em Caixa [MUST]
+  - Descrição: Cálculo em tempo real do total de receitas, despesas e saldo.
+  - Teste: Cadastrar receita de 1000 e despesa de 300; saldo exibido: 700.
+
+[RF10] Lançamentos Financeiros Fixos / Recorrentes [SHOULD]
+  - Descrição: Projeção de contas fixas para apuração de saldo livre real.
+  - Teste: Exibir lista de despesas fixas previstas para o mês corrente.
+
+[RF11] Incubadora de Ideias (Brain Dump) [MUST]
+  - Descrição: Registro textual instantâneo de notas e ideias livres com tags.
+  - Teste: Salvar nota rápida com tags "#projeto #estudo" e recuperar na busca.
+
+[RF12] Conversão de Ideia em Tarefa [MUST]
+  - Descrição: Botão na ideia que cria diretamente uma tarefa e vincula o ID.
+  - Teste: Clicar em "Converter"; a ideia vira status "convertida" e surge nova
+    tarefa correspondente.
+
+[RF13] Busca e Filtros Client-Side [COULD]
+  - Descrição: Filtro textual instantâneo nas listas locais sem chamar a API.
+  - Teste: Digitar na busca e ver a lista filtrar em tempo real (< 50ms).
+
+[RF14] Backup a Quente do Banco de Dados [MUST]
+  - Descrição: Endpoint e rotina shell para gerar snapshot seguro do SQLite.
+  - Teste: Executar script e gerar arquivo .db íntegro sem parar o servidor.
+
+[RF15] Exportação de Dados em CSV / JSON [SHOULD]
+  - Descrição: Download tabular dos dados financeiros e de tarefas.
+  - Teste: Clicar no botão e baixar arquivo legível para auditoria em planilhas.
+
+3.2 REGRAS DE NEGÓCIO (RN)
+--------------------------------------------------------------------------------
+RN01 - Saldo Derivado: O saldo nunca é armazenado estático. É calculado via
+       SUM(amount) considerando os tipos receita e despesa.
+RN02 - Conversão Atômica de Ideias: A conversão de ideia em tarefa deve ocorrer
+       em transação única (BEGIN IMMEDIATE), associando converted_task_id.
+RN03 - Cômputo de Tempo Efetivo: Minutos só são creditados à tarefa se o ciclo
+       Pomodoro for executado até o encerramento do temporizador.
+RN04 - Recorrência Automática: Ao concluir item com recorrência ativa, o status
+       do atual muda para 'concluida' e gera-se nova linha para a próxima data.
+RN05 - Isolamento de Tráfego: Requisições fora de 127.0.0.1 ou 100.64.0.0/10
+       são rejeitadas pelo Nginx com código HTTP 403.
+
+3.3 REQUISITOS NÃO FUNCIONAIS (RNF)
+--------------------------------------------------------------------------------
+RNF01 - Teto de Memória: Consumo de memória RAM RSS do Python/Gunicorn < 45 MB.
+RNF02 - Latência de Consulta: Tempo de resposta local da API < 25ms.
+RNF03 - Ergonomia OLED: Fundo preto #000000, botões e alvos de toque >= 44x44px.
+RNF04 - Zero Build Step: Frontend executável nativo em navegadores sem Node/npm.
+RNF05 - Resiliência Móvel: Processos sob supervisão Runit e termux-wake-lock.
+
+================================================================================
+4. MODELAGEM DE DADOS RELACIONAL (DDL SQLITE WAL)
+================================================================================
+
+-- Categorias unificadas para Tarefas e Finanças
+CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    color TEXT DEFAULT '#2563EB',
+    icon TEXT DEFAULT 'folder',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Atividades e Tarefas
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+    priority TEXT CHECK(priority IN ('baixa', 'media', 'alta')) DEFAULT 'media',
+    status TEXT CHECK(status IN ('pendente', 'em_progresso', 'concluida')) DEFAULT 'pendente',
+    due_date DATE,
+    recurrence TEXT CHECK(recurrence IN ('nenhuma', 'diaria', 'semanal', 'mensal')) DEFAULT 'nenhuma',
+    estimated_pomodoros INTEGER DEFAULT 1,
+    completed_pomodoros INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME
+);
+
+-- Sessões de Tempo e Foco (Pomodoro)
+CREATE TABLE IF NOT EXISTS time_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+    type TEXT CHECK(type IN ('pomodoro', 'short_break', 'long_break')) NOT NULL,
+    duration_minutes INTEGER NOT NULL,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Gestão Financeira (Transações)
+CREATE TABLE IF NOT EXISTS transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT CHECK(type IN ('receita', 'despesa')) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+    task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+    description TEXT NOT NULL,
+    transaction_date DATE NOT NULL,
+    is_recurring BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Incubadora de Ideias
+CREATE TABLE IF NOT EXISTS ideas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    content TEXT,
+    tags TEXT,
+    status TEXT CHECK(status IN ('bruta', 'em_analise', 'convertida', 'arquivada')) DEFAULT 'bruta',
+    converted_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices de Performance
+CREATE INDEX IF NOT EXISTS idx_tasks_due_status ON tasks(due_date, status);
+CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(transaction_date);
+CREATE INDEX IF NOT EXISTS idx_time_sessions_created ON time_sessions(created_at);
+CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status);
+
+================================================================================
+5. ESPECIFICAÇÃO DE CONTRATOS DA API RESTFUL
+================================================================================
+
+Padrão de Resposta de Sucesso:
+  { "status": "success", "data": { ... } }
+
+Padrão de Resposta de Erro:
+  { "status": "error", "message": "Descrição amigável do erro" }
+
+Tabela de Endpoints:
++--------+----------------------------+----------------------------------------+
+| Verbo  | Rota                       | Ação Funcional                         |
++--------+----------------------------+----------------------------------------+
+| GET    | /api/cockpit/today         | Retorna dados consolidados do Cockpit  |
+| GET    | /api/tasks                 | Lista tarefas filtradas por status/data|
+| POST   | /api/tasks                 | Cadastra nova atividade                |
+| PATCH  | /api/tasks/<id>/status     | Alterna status (gera recorrência)      |
+| POST   | /api/time/sessions         | Registra sessão de foco concluída      |
+| GET    | /api/finance/summary       | Retorna balanço mensal (receita/gasto) |
+| GET    | /api/finance/transactions  | Lista transações do período            |
+| POST   | /api/finance/transactions  | Registra lançamento de receita/despesa |
+| GET    | /api/ideas                 | Lista ideias ativas                    |
+| POST   | /api/ideas                 | Grava insight rápido na incubadora     |
+| POST   | /api/ideas/<id>/convert    | Converte ideia em tarefa atomicamente  |
+| GET    | /api/system/backup         | Dispara e baixa snapshot SQLite        |
++--------+----------------------------+----------------------------------------+
+
+================================================================================
+6. ARQUITETURA DE IMPLANTAÇÃO NO TERMUX
+================================================================================
+
+6.1 CONFIGURAÇÃO DO NGINX (nginx.conf)
+--------------------------------------------------------------------------------
+server {
+    listen 8080;
+    server_name dreamhub.local;
+
+    # Restrição de Segurança: apenas Tailscale e Localhost
+    allow 100.64.0.0/10;
+    allow 127.0.0.1;
+    deny all;
+
+    # Entrega direta de arquivos estáticos com cache de 7 dias
+    location /static/ {
+        alias /data/data/com.termux/files/home/Dream-Hub/static/;
+        expires 7d;
+        add_header Cache-Control "public, no-transform";
+    }
+
+    # Proxy reverso para o Gunicorn (Flask)
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+    }
+}
+
+6.2 SCRIPT DE DAEMON COM RUNIT
+--------------------------------------------------------------------------------
+Caminho: ~/../usr/var/service/dreamhub/run
+
+#!/data/data/com.termux/files/usr/bin/sh
+exec 2>&1
+# Impede o Android de suspender o processador com a tela desligada
+termux-wake-lock
+
+cd /data/data/com.termux/files/home/Dream-Hub
+exec gunicorn -w 1 --threads 2 -b 127.0.0.1:5000 --max-requests 500 app:app
+
+6.3 ROTINA DE BACKUP AUTOMÁTICO A QUENTE
+--------------------------------------------------------------------------------
+Caminho: ~/Dream-Hub/scripts/backup.sh
+
+#!/data/data/com.termux/files/usr/bin/sh
+BACKUP_DIR="$HOME/storage/shared/DreamHubBackups"
+mkdir -p "$BACKUP_DIR"
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+TARGET="$BACKUP_DIR/dreamhub_$TIMESTAMP.db"
+
+# Backup consistente a quente nativo do SQLite (seguro em modo WAL)
+sqlite3 $HOME/Dream-Hub/data/dreamhub.db ".backup '$TARGET'"
+
+# Remove arquivos com mais de 30 dias para poupar armazenamento flash
+find "$BACKUP_DIR" -name "dreamhub_*.db" -type f -mtime +30 -delete
+echo "[OK] Backup gerado com sucesso em: $TARGET"
+
+================================================================================
+7. ROTEIRO DE EXECUÇÃO SEQUENCIAL (FASES 1 A 6)
+================================================================================
+
+FASE 1: Unificação do Banco de Dados e Conexão WAL
+  - Ações: Criar schema.sql; implementar db.py com PRAGMA journal_mode=WAL.
+  - Verificação: Teste de escrita multithreaded sem erro "database is locked".
+
+FASE 2: Centralização da API Flask e Endpoint do Cockpit
+  - Ações: Criar Blueprints enxutos; criar endpoint /api/cockpit/today.
+  - Verificação: Consumo de memória verificado com `ps -o rss` abaixo de 45 MB.
+
+FASE 3: Interface Mobile-First OLED e Navegação Inferior
+  - Ações: Refatorar index.html e main.css com fundo #000000 e alvos >= 44x44px.
+  - Verificação: Teste no navegador móvel com navegação fluida por abas.
+
+FASE 4: Síntese Sonora Web Audio API e Pomodoro
+  - Ações: Criar audio.js para síntese senoidal; integrar contagem regressiva.
+  - Verificação: Disparar timer e ouvir alerta sem carregar arquivos MP3 na rede.
+
+FASE 5: PWA Offline e Modal de Captura Rápida
+  - Ações: Registrar Service Worker (sw.js) e criar modal global acionado por FAB.
+  - Verificação: Instalar PWA na tela inicial e testar captura em 2 toques.
+
+FASE 6: Configuração de Produção no Termux
+  - Ações: Configurar nginx.conf na porta 8080 restrito à Tailnet; criar daemon Runit.
+  - Verificação: Reiniciar o Android e constatar inicialização com wake-lock ativo.
+
+================================================================================
+8. CONCLUSÃO
+================================================================================
+Esta documentação estabelece os requisitos e o alinhamento de engenharia para
+consolidar o Dream-Hub como um sistema operacional pessoal independente, de alto
+desempenho, privado e duradouro no Android.
+================================================================================
