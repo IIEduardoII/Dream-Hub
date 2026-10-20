@@ -1,0 +1,334 @@
+================================================================================
+                                DREAM-HUB v1.2
+     Central Pessoal de Produtividade, Tempo, Atividades, Finanças e Ideias
+  ESPECIFICAÇÃO DE REQUISITOS, ARQUITETURA DE DADOS E PLANO DE ENGENHARIA
+================================================================================
+
+Autor do Projeto:      Eduardo Camilo
+Repositório Oficial:   https://github.com/IIEduardoII/Dream-Hub
+Ambiente de Execução:  Android / Termux (Nginx, Gunicorn, SQLite WAL, Tailscale)
+Status do Projeto:     Planejamento de Evolução de Escopo (v1.1 -> v1.2)
+Data da Especificação: Outubro de 2026 • Versão 1.2.0
+
+================================================================================
+1. SUMÁRIO EXECUTIVO E VISÃO GERAL DA VERSÃO 1.2
+================================================================================
+
+O Dream-Hub v1.2 eleva a plataforma de um gestor de rotinas diárias para um
+sistema consolidado de planejamento tático, gestão do conhecimento pessoal e
+previsibilidade financeira.
+
+Esta versão atende a quatro necessidades operacionais centrais:
+  1. Sistema de Gestão de Ativos (Anexos de Arquivos):
+     Permite atrelar comprovantes, documentos e mídias a tarefas, notas,
+     transações e ideias sem degradar a performance do banco SQLite.
+  2. Camada Teleológica (Módulo de Metas):
+     Estrutura objetivos de médio e longo prazo, permitindo correlacionar esforço
+     operacional (estudos/pomodoros) e disciplina financeira (poupança/aquisições).
+  3. Gestão de Conhecimento Estruturado (Modo Anotações):
+     Cria um ambiente perene de documentação em Markdown com cadernos e pastas,
+     distinguindo notas duradouras do "Brain Dump" rápido da incubadora de ideias.
+  4. Previsibilidade e Controle Financeiro (Motor de Recorrências):
+     Resolve a invisibilidade de contas e receitas futuras, permitindo
+     visualizar, auditar, pausar e projetar o fluxo de caixa para os próximos
+     meses sem esperar a data de lançamento.
+
+Tudo mantendo os pilares de engenharia: soberania absoluta de dados no celular,
+consumo de memória estritamente inferior a 45 MB de RAM RSS, zero build step no
+frontend e comunicação criptografada via malha Tailscale.
+
+================================================================================
+2. REFINAMENTO TÉCNICO DOS 4 NOVOS REQUISITOS
+================================================================================
+
+[PONTO 1] SISTEMA DESCENTRALIZADO DE ANEXOS DE ARQUIVOS
+--------------------------------------------------------------------------------
+- Diagnóstico: Salvar arquivos binários diretamente no SQLite (BLOB) fragmenta
+  páginas de disco, estoura o cache de 8 MB e satura a memória do Gunicorn
+  no Termux.
+- Requisito Funcional (RF01):
+  * O sistema deve permitir upload e anexação de arquivos a Tarefas, Notas,
+    Ideias e Transações financeiras (ex: comprovantes de pagamento).
+- Requisito Não Funcional (RNF01):
+  * Armazenamento Físico: Arquivos são gravados no filesystem do dispositivo em
+    `/data/data/com.termux/files/home/Dream-Hub/uploads/`.
+  * Nomeclatura em Hash: Arquivos renomeados com UUIDv4 + extensão original
+    sanitizada para evitar colisões e path traversal.
+  * O banco de dados armazena unicamente metadados (nome original, mime-type,
+    tamanho em bytes, caminho relativo e timestamp).
+  * Limite Máximo: Trava estrita de 15 MB por arquivo no client e no server.
+- Regra de Negócio (RN01 - Limpeza de Órfãos): Ao excluir um anexo no sistema,
+  o backend deve disparar `os.remove()` no disco imediatamente após a transação.
+
+[PONTO 2] MÓDULO TRANSVERSAL DE METAS (GOALS & MILESTONES)
+--------------------------------------------------------------------------------
+- Diagnóstico: O sistema registrava ações diárias desconectadas de objetivos
+  maiores (ex: estudar sem saber o término, ou economizar sem alvo fixo).
+- Requisito Funcional (RF02):
+  * Criação de metas tipificadas por área de vida:
+    - Metas Financeiras: Tipo poupança (acumular valor) ou aquisição de ativo
+      (comprar algo específico), com valor-alvo ($R\$$) e data limite.
+    - Metas de Estudo / Atividades: Tipo qualitativo ("estudar até aprender",
+      sem prazo rígido) ou quantitativo (ex: acumular 50 blocos de pomodoro
+      ou concluir todas as tarefas de um projeto).
+- Requisito Funcional (RF03):
+  * Barra de progresso visual de $0\%$ a $100\%$ calculada dinamicamente.
+  * Status da meta: 'em_andamento', 'alcancada', 'pausada'.
+- Regra de Negócio (RN02): Lançamentos financeiros ou tarefas podem ser
+  vinculados a uma meta ativa, incrementando o saldo ou contagem automaticamente.
+
+[PONTO 3] NOVO MODO DE "ANOTAÇÕES" (KNOWLEDGE BASE & CADERNOS)
+--------------------------------------------------------------------------------
+- Diagnóstico: A incubadora de ideias é excelente para notas efêmeras e rápidas,
+  mas inadequada para guias técnicos, resumos de livros, atas e anotações longas.
+- Diferenciação Arquitetural:
+  * Ideias: Rápidas, curtas, efêmeras, voltadas à conversão imediata em tarefa.
+  * Anotações: Longas, estruturadas, perenes, organizadas em pastas e tags.
+- Requisito Funcional (RF04):
+  * Editor e leitor de notas com suporte nativo a Markdown puro.
+  * Campos: Título, Conteúdo textual, Pasta/Caderno, Tags contextuais e status de fixação.
+  * Suporte à vinculação de múltiplos anexos diretamente na nota.
+- Requisito Não Funcional (RNF02):
+  * Renderizador Markdown Vanilla JS ultraleve (zero dependências pesadas de npm).
+
+[PONTO 4] PAINEL E MOTOR DE RECORRÊNCIAS FINANCEIRAS
+--------------------------------------------------------------------------------
+- Diagnóstico Crítico Atual: Despesas e receitas recorrentes cadastradas para
+  dias futuros ficavam invisíveis no extrato do mês até o dia exato da ocorrência,
+  impedindo visualização prévia, planejamento de caixa e ajustes de valores.
+- Requisito Funcional (RF05):
+  * Aba dedicada em Finanças: "Recorrências & Contas Fixas".
+  * Listagem explícita de todos os contratos/templates recorrentes cadastrados:
+    descrição, valor previsto, dia de vencimento, periodicidade e status (ativo/pausado).
+- Requisito Funcional (RF06 - Gestão Antecipada):
+  * Botões diretos para: Editar Valor/Data da regra, Pausar recorrência ou
+    Excluir template recorrente sem afetar o histórico passado.
+- Requisito Funcional (RF07 - Projeção de Caixa Futuro):
+  * Simulador de fluxo para os próximos 1, 2 e 3 meses ($D+30, D+60, D+90$).
+  * Exibição do "Saldo Livre Projetado" descontando compromissos fixos futuros.
+- Regra de Negócio (RN03): A alteração de uma regra recorrente oferece a opção
+  de aplicar a mudança apenas para ciclos futuros ou atualizar a projeção vigente.
+
+================================================================================
+3. MATRIZ DE REQUISITOS (MOSCOW)
+================================================================================
+
++-------+---------------+----------------------------------------------+--------+
+| ID    | Módulo        | Descrição da Funcionalidade                  | MoSCoW |
++-------+---------------+----------------------------------------------+--------+
+| RF01  | Anexos        | Upload e gestão de arquivos em disco (15MB)  | MUST   |
+| RF02  | Metas         | Metas financeiras e de estudo (qualit/quant) | MUST   |
+| RF03  | Metas         | Barra visual de progresso e status da meta   | MUST   |
+| RF04  | Anotações     | Modo Anotações com títulos, pastas e Markdown| MUST   |
+| RF05  | Finanças      | Painel dedicado de regras recorrentes ativas | MUST   |
+| RF06  | Finanças      | Edição antecipada de regras recorrentes      | MUST   |
+| RF07  | Finanças      | Projeção de fluxo de caixa para 1 a 3 meses  | SHOULD |
+| RN01  | Armazenamento | Exclusão física atômica de arquivos órfãos   | MUST   |
+| RN02  | Integridade   | Vinculação de transações e tempo a metas     | SHOULD |
+| RNF01 | Performance   | Teto de memória RAM < 45 MB RSS no Termux    | MUST   |
+| RNF02 | Frontend      | Zero build step e OLED Dark Mode (#000000)   | MUST   |
++-------+---------------+----------------------------------------------+--------+
+
+================================================================================
+4. MODELAGEM DE DADOS RELACIONAL ATUALIZADA (SQLITE WAL)
+================================================================================
+
+-- 1. TABELA POLIMÓRFICA DE ANEXOS (Filesystem + Metadados)
+CREATE TABLE IF NOT EXISTS attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT NOT NULL,          -- Nome original do arquivo (ex: boleto.pdf)
+    storage_path TEXT NOT NULL,      -- Caminho relativo no disco (uploads/uuid.ext)
+    file_size INTEGER NOT NULL,      -- Tamanho exato em bytes
+    mime_type TEXT NOT NULL,         -- Ex: 'application/pdf', 'image/webp'
+    entity_type TEXT CHECK(entity_type IN ('task', 'note', 'idea', 'transaction')) NOT NULL,
+    entity_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_entity ON attachments(entity_type, entity_id);
+
+-- 2. MÓDULO TRANSVERSAL DE METAS (GOALS)
+CREATE TABLE IF NOT EXISTS goals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    category TEXT CHECK(category IN ('financas', 'estudos', 'atividades', 'pessoal')) NOT NULL,
+    goal_type TEXT CHECK(goal_type IN ('monetaria', 'quantitativa', 'qualitativa')) NOT NULL,
+    target_value DECIMAL(10,2),      -- Ex: R$ 5000.00 ou 50 pomodoros (NULL para qualitativa)
+    current_value DECIMAL(10,2) DEFAULT 0.00,
+    unit TEXT DEFAULT 'R$',          -- 'R$', 'pomodoros', 'tarefas', 'capítulos'
+    deadline DATE,                   -- Opcional
+    status TEXT CHECK(status IN ('em_andamento', 'alcancada', 'pausada')) DEFAULT 'em_andamento',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);
+
+-- 3. MODO ANOTAÇÕES (KNOWLEDGE BASE PERENE)
+CREATE TABLE IF NOT EXISTS notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,           -- Texto estruturado em Markdown
+    folder TEXT DEFAULT 'Geral',     -- Agrupador / Caderno
+    tags TEXT,                       -- Tags separadas por vírgula
+    is_pinned BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(folder);
+CREATE INDEX IF NOT EXISTS idx_notes_pinned ON notes(is_pinned);
+
+-- 4. CONTRATOS E REGRAS DE TRANSAÇÕES RECORRENTES (FINANÇAS)
+CREATE TABLE IF NOT EXISTS recurring_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT CHECK(type IN ('receita', 'despesa')) NOT NULL,
+    description TEXT NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+    frequency TEXT CHECK(frequency IN ('semanal', 'mensal', 'anual')) DEFAULT 'mensal',
+    day_of_month INTEGER CHECK(day_of_month BETWEEN 1 AND 31),
+    start_date DATE NOT NULL,
+    end_date DATE,                   -- NULL se for indeterminada
+    is_active BOOLEAN DEFAULT 1,
+    last_generated_date DATE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_recurring_active ON recurring_rules(is_active);
+
+================================================================================
+5. ESPECIFICAÇÃO DE ROTAS DA API RESTFUL (CONTRATOS)
+================================================================================
+
++--------+-----------------------------------+---------------------------------+
+| Método | Endpoint                          | Propósito Funcional             |
++--------+-----------------------------------+---------------------------------+
+| POST   | /api/uploads                      | Upload multipart de arquivos    |
+| GET    | /api/attachments/<entity>/<id>    | Lista anexos de um registro     |
+| DELETE | /api/attachments/<id>             | Remove anexo do banco e disco   |
+| GET    | /api/goals                        | Lista metas ativas com progresso|
+| POST   | /api/goals                        | Cria nova meta                  |
+| PATCH  | /api/goals/<id>/progress          | Incrementa progresso da meta    |
+| GET    | /api/notes                        | Lista notas por pasta/busca     |
+| POST   | /api/notes                        | Cria nova nota com tags         |
+| PUT    | /api/notes/<id>                   | Atualiza conteúdo da nota       |
+| DELETE | /api/notes/<id>                   | Exclui nota e anexos vinculados |
+| GET    | /api/finance/recurring-rules      | Lista regras fixas ativas       |
+| POST   | /api/finance/recurring-rules      | Cria nova regra recorrente      |
+| PUT    | /api/finance/recurring-rules/<id> | Edita valor/vencimento da regra |
+| PATCH  | /api/finance/recurring-rules/<id> | Pausa ou reativa regra fixa     |
+| GET    | /api/finance/projection           | Retorna fluxo futuro (1 a 3 m)  |
++--------+-----------------------------------+---------------------------------+
+
+================================================================================
+6. ARQUITETURA DE INTERFACE E EXPERIÊNCIA DO USUÁRIO (OLED)
+================================================================================
+
+6.1 NAVEGAÇÃO ERGONÔMICA INFERIOR (BOTTOM NAVIGATION)
+A barra inferior fixa é adaptada para priorizar as 5 áreas operacionais:
+  [1. Cockpit]  [2. Tarefas]  [3. Finanças]  [4. Anotações]  [5. Tempo]
+
+O acesso a "Metas" e à "Incubadora de Ideias" é disponibilizado como atalhos
+rápidos de destaque no Cockpit diário, mantendo a barra inferior acessível
+à zona do polegar (thumb zone) com alvos de no mínimo 44x44px.
+
+6.2 SUB-ABAS NO MÓDULO DE FINANÇAS
+Segmented Control no topo da visão financeira:
+  [ Extrato Mensal ]  |  [ Contas Fixas & Recorrências ]  |  [ Projeção ]
+
+- Visão "Contas Fixas": Cards listando cada despesa recorrente com valor, dia
+  de débito previsto e botão imediato [Editar / Pausar].
+- Visão "Projeção": Painel dinâmico calculando:
+  Receitas Previstas - Contas Fixas Agendadas = Saldo Livre Projetado.
+
+6.3 MODO ANOTAÇÕES (INTERFACE DISTRACTION-FREE)
+- Fundo preto puro (`#000000`) para displays OLED.
+- Tipografia sans-serif de alto contraste e preview de Markdown client-side.
+- Botão discreto de anexo rápido com indicador de upload sem reload da página.
+
+================================================================================
+7. PIPELINE DE ARMAZENAMENTO E LIMPEZA DE ANEXOS NO TERMUX
+================================================================================
+
+Para garantir que uploads não degradem o armazenamento flash nem criem arquivos
+fantasmas:
+
+```python
+import os
+import uuid
+from werkzeug.utils import secure_filename
+from flask import current_app
+
+UPLOAD_DIR = os.path.expanduser("~/Dream-Hub/uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+MAX_FILE_SIZE = 15 * 1024 * 1024 # 15 MB
+
+def save_attachment(file_storage, entity_type, entity_id):
+    filename = secure_filename(file_storage.filename)
+    ext = os.path.splitext(filename)[1].lower()
+    unique_name = f"{uuid.uuid4().hex}{ext}"
+    physical_path = os.path.join(UPLOAD_DIR, unique_name)
+    
+    file_storage.save(physical_path)
+    file_size = os.path.getsize(physical_path)
+    
+    # Grava metadados no SQLite
+    with get_db() as db:
+        cursor = db.execute(
+            """INSERT INTO attachments (filename, storage_path, file_size, mime_type, entity_type, entity_id)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (filename, unique_name, file_size, file_storage.mimetype, entity_type, entity_id)
+        )
+        db.commit()
+        return cursor.lastrowid
+
+def delete_attachment(attachment_id):
+    with get_db() as db:
+        row = db.execute("SELECT storage_path FROM attachments WHERE id = ?", (attachment_id,)).fetchone()
+        if row:
+            physical_path = os.path.join(UPLOAD_DIR, row['storage_path'])
+            if os.path.exists(physical_path):
+                os.remove(physical_path)
+            db.execute("DELETE FROM attachments WHERE id = ?", (attachment_id,))
+            db.commit()
+```
+
+================================================================================
+8. ROTEIRO DE EXECUÇÃO SEQUENCIAL (ROADMAP v1.2)
+================================================================================
+
+FASE 1: Resolução da Visibilidade de Recorrências Financeiras
+  * Criar tabela `recurring_rules` e migrar templates existentes.
+  * Desenvolver a interface "Contas Fixas & Recorrências" e tela de projeção.
+  * Teste: Adicionar despesa fixa para o dia 25; constatar que ela é visível
+    e editável imediatamente no painel de recorrências.
+
+FASE 2: Implementação do Módulo de Metas
+  * Criar tabela `goals` e rotas da API.
+  * Implementar cards visuais de metas financeiras e de atividades no Cockpit.
+  * Teste: Criar meta qualitativa de estudos e meta financeira com barra de progresso.
+
+FASE 3: Estruturação do Modo Anotações
+  * Criar tabela `notes` com indexação por cadernos/pastas.
+  * Desenvolver componente de navegação lateral por pastas e editor Markdown.
+  * Teste: Salvar nota técnica formatada e verificar renderização instantânea.
+
+FASE 4: Sistema de Arquivos e Anexos Descentralizados
+  * Criar diretório `uploads/` com bloqueio de execução de scripts via Nginx.
+  * Implementar endpoint de upload multipart e exclusão atômica de arquivos.
+  * Teste: Anexar PDF de 5 MB a uma despesa e confirmar exclusão física ao deletar.
+
+FASE 5: Homologação no Termux e Medição de Recursos
+  * Testar concorrência do SQLite em modo WAL com uploads simultâneos.
+  * Validar pegada de memória do Gunicorn com comando `ps -o rss` garantindo < 45 MB.
+
+================================================================================
+9. CONCLUSÃO
+================================================================================
+O Dream-Hub v1.2 consolida a transição de um conjunto de utilitários isolados
+para uma central pessoal de produtividade duradoura, robusta e privada,
+antecipando compromissos financeiros e oferecendo suporte integral a metas e
+conhecimento sob o hardware soberano do usuário.
+================================================================================
