@@ -1330,6 +1330,32 @@ def create_app(test_config=None):
                     'amount_cents': amt_c
                 })
 
+            # Also include one-off transactions already scheduled in that future month
+            scheduled_txns = conn.execute("""
+                SELECT * FROM transactions
+                WHERE date LIKE ? AND is_recurring = 0 AND recurring_rule_id IS NULL
+                ORDER BY date ASC
+            """, (f"{m_str}%",)).fetchall()
+            for st in scheduled_txns:
+                amt_c = int(st['amount_cents'] or round(float(st['amount'] or 0) * 100))
+                t_type = 'receita' if st['type'] == 'income' else 'despesa'
+                if t_type == 'receita':
+                    proj_inc += amt_c
+                else:
+                    proj_exp += amt_c
+                try:
+                    d_m = int((st['date'] or '2026-01-01').split('-')[2][:2])
+                except (IndexError, ValueError):
+                    d_m = 1
+                items.append({
+                    'transaction_id': st['id'],
+                    'description': f"{st['description']} (Agendado)",
+                    'type': t_type,
+                    'day_of_month': d_m,
+                    'frequency': 'única',
+                    'amount_cents': amt_c
+                })
+
             net_c = proj_inc - proj_exp
             cumulative_cents += net_c
             projections.append({
