@@ -19,6 +19,10 @@ const App = (() => {
     ideaSearchQuery: '',
     quickCaptureTab: 'idea',
     tasks: [],
+    archivedTasks: [],
+    taskMode: 'kanban',
+    hideDoneColumn: false,
+    doneLimit: 8,
     ideas: [],
     notes: [],
     goals: [],
@@ -900,13 +904,99 @@ const App = (() => {
     }
   }
 
-  function setTaskMode(mode) {
+  async function setTaskMode(mode) {
     state.taskMode = mode;
-    document.getElementById('btn-kanban-mode').classList.toggle('active', mode === 'kanban');
-    document.getElementById('btn-list-mode').classList.toggle('active', mode === 'list');
+    document.getElementById('btn-kanban-mode')?.classList.toggle('active', mode === 'kanban');
+    document.getElementById('btn-list-mode')?.classList.toggle('active', mode === 'list');
+    document.getElementById('btn-archived-mode')?.classList.toggle('active', mode === 'archived');
     document.getElementById('tasks-kanban-container').style.display = mode === 'kanban' ? 'grid' : 'none';
     document.getElementById('tasks-flat-container').style.display = mode === 'list' ? 'block' : 'none';
+    const archContainer = document.getElementById('tasks-archived-container');
+    if (archContainer) archContainer.style.display = mode === 'archived' ? 'block' : 'none';
+
+    if (mode === 'archived') {
+      await loadArchivedTasks();
+    } else {
+      renderTasks();
+    }
+  }
+
+  function toggleDoneColumn() {
+    state.hideDoneColumn = !state.hideDoneColumn;
+    const btn = document.getElementById('btn-toggle-done-col');
+    const colDone = document.getElementById('col-done');
+    if (btn) {
+      btn.innerText = state.hideDoneColumn ? '👁️ Mostrar Concluídas' : '👁️ Ocultar Concluídas';
+    }
+    if (colDone) {
+      colDone.classList.toggle('hidden-col', state.hideDoneColumn);
+    }
+  }
+
+  function loadMoreDoneTasks() {
+    state.doneLimit += 8;
     renderTasks();
+  }
+
+  async function archiveAllDoneTasks() {
+    if (!confirm('Deseja arquivar todas as tarefas concluídas do quadro? Elas continuarão salvas na aba "📦 Arquivo".')) return;
+    try {
+      const res = await apiFetch('/api/tasks/archive_all_done', { method: 'POST' });
+      showToast(`🧹 ${res.archived_count || 0} tarefa(s) arquivada(s)!`);
+      await loadTasksData();
+      loadOverviewData();
+    } catch (e) {
+      alert('Erro ao arquivar tarefas concluídas');
+    }
+  }
+
+  async function loadArchivedTasks() {
+    const container = document.getElementById('tasks-archived-container');
+    if (!container) return;
+    container.innerHTML = '<div class="skeleton" style="height:60px;"></div>';
+    try {
+      const archived = await apiFetch('/api/tasks?status=archived');
+      state.archivedTasks = archived || [];
+      renderArchivedTasks();
+    } catch (e) {
+      showError('tasks-archived-container', 'Falha ao carregar arquivo de tarefas', () => loadArchivedTasks());
+    }
+  }
+
+  function renderArchivedTasks() {
+    const container = document.getElementById('tasks-archived-container');
+    if (!container) return;
+    if (state.archivedTasks.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📦</div>
+          <div class="empty-title">Nenhuma tarefa arquivada</div>
+          <div class="empty-desc">Tarefas concluídas há mais de 24 horas são transferidas para cá automaticamente para manter o quadro Kanban ágil e limpo.</div>
+          <button class="btn btn-secondary" onclick="App.setTaskMode('kanban')">Voltar ao Quadro</button>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+        <span style="font-size:0.875rem; color:var(--text-secondary);">Tarefas no Arquivo: <b>${state.archivedTasks.length}</b></span>
+        <button class="btn btn-secondary btn-sm" onclick="App.setTaskMode('kanban')">← Voltar ao Quadro</button>
+      </div>
+      ${state.archivedTasks.map(t => renderTaskCard(t, true)).join('')}
+    `;
+  }
+
+  async function unarchiveTask(taskId) {
+    try {
+      await apiFetch(`/api/tasks/${taskId}/archive`, { method: 'POST' });
+      showToast('✓ Tarefa desarquivada para o quadro!');
+      await loadArchivedTasks();
+      await loadTasksData();
+      loadOverviewData();
+    } catch (e) {
+      alert('Erro ao desarquivar tarefa');
+    }
   }
 
   function filterTasks(type, val, btnEl) {
@@ -947,6 +1037,11 @@ const App = (() => {
         else cols.todo.push(t);
       });
 
+      const colDone = document.getElementById('col-done');
+      if (colDone) {
+        colDone.classList.toggle('hidden-col', state.hideDoneColumn);
+      }
+
       ['todo', 'in_progress', 'done'].forEach(col => {
         const countEl = document.getElementById(`count-${col}`);
         const listEl = document.getElementById(`tasks-list-${col}`);
@@ -958,8 +1053,24 @@ const App = (() => {
               <div class="empty-desc" style="margin-bottom:0;">Vazio</div>
             </div>
           `;
+          if (col === 'done') {
+            const loadMoreEl = document.getElementById('done-load-more-container');
+            if (loadMoreEl) loadMoreEl.style.display = 'none';
+          }
         } else {
-          listEl.innerHTML = cols[col].map(renderTaskCard).join('');
+          let items = cols[col];
+          if (col === 'done') {
+            const loadMoreEl = document.getElementById('done-load-more-container');
+            const btnLoadMore = document.getElementById('btn-load-more-done');
+            if (items.length > state.doneLimit) {
+              items = items.slice(0, state.doneLimit);
+              if (loadMoreEl) loadMoreEl.style.display = 'block';
+              if (btnLoadMore) btnLoadMore.innerText = `Carregar anteriores (+${cols.done.length - state.doneLimit})`;
+            } else {
+              if (loadMoreEl) loadMoreEl.style.display = 'none';
+            }
+          }
+          listEl.innerHTML = items.map(t => renderTaskCard(t, false)).join('');
         }
       });
     } else {
@@ -974,22 +1085,24 @@ const App = (() => {
           </div>
         `;
       } else {
-        container.innerHTML = filtered.map(renderTaskCard).join('');
+        container.innerHTML = filtered.map(t => renderTaskCard(t, false)).join('');
       }
     }
   }
 
-  function renderTaskCard(t) {
+  function renderTaskCard(t, isArchivedView = false) {
     const nextStatus = t.status === 'todo' ? 'in_progress' : (t.status === 'in_progress' ? 'done' : 'todo');
     const nextLabel = t.status === 'todo' ? 'Iniciar' : (t.status === 'in_progress' ? 'Concluir' : 'Reabrir');
     const hasRec = t.recurrence && t.recurrence !== 'nenhuma';
+    const streak = Number(t.streak_count || 0);
     const attCount = Number(t.attachments_count || 0);
 
     return `
       <div class="task-card">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
           <h4 class="task-title">${escapeHtml(t.title)}</h4>
-          <div style="display:flex; gap:4px; align-items:center; flex-shrink:0;">
+          <div style="display:flex; gap:4px; align-items:center; flex-shrink:0; flex-wrap:wrap; justify-content:flex-end;">
+            ${streak > 0 ? `<span class="badge badge-streak" title="Ofensiva diária consecutiva">🔥 ${streak} dia${streak > 1 ? 's' : ''}</span>` : ''}
             ${hasRec ? `<span class="badge badge-recurring">🔁 ${escapeHtml(t.recurrence)}</span>` : ''}
             <span class="badge badge-${t.priority}">${t.priority}</span>
           </div>
@@ -1002,12 +1115,18 @@ const App = (() => {
         </div>
         <div class="task-actions">
           <div style="display:flex; gap:6px; flex-wrap:wrap;">
-            <button class="btn btn-secondary btn-sm" onclick="App.openTaskModal(${t.id})">Editar</button>
-            <button class="btn btn-secondary btn-sm" onclick="App.startFocusForTask(${t.id}, '${escapeHtml(t.title)}')">⏱ Focar</button>
-            <button class="btn btn-secondary btn-sm" onclick="App.openAttachmentsModal('task', ${t.id}, '${escapeHtml(t.title)}')">📎 (${attCount})</button>
+            ${isArchivedView ? `
+              <button class="btn btn-secondary btn-sm" onclick="App.unarchiveTask(${t.id})">Desarquivar</button>
+            ` : `
+              <button class="btn btn-secondary btn-sm" onclick="App.openTaskModal(${t.id})">Editar</button>
+              <button class="btn btn-secondary btn-sm" onclick="App.startFocusForTask(${t.id}, '${escapeHtml(t.title)}')">⏱ Focar</button>
+              <button class="btn btn-secondary btn-sm" onclick="App.openAttachmentsModal('task', ${t.id}, '${escapeHtml(t.title)}')">📎 (${attCount})</button>
+            `}
             <button class="btn btn-danger btn-sm" title="Excluir tarefa" onclick="App.deleteTask(${t.id})">🗑</button>
           </div>
-          <button class="btn btn-sm ${t.status === 'in_progress' ? 'btn-tasks' : 'btn-secondary'}" onclick="App.updateTaskStatus(${t.id}, '${nextStatus}')">${nextLabel}</button>
+          ${!isArchivedView ? `
+            <button class="btn btn-sm ${t.status === 'in_progress' ? 'btn-tasks' : 'btn-secondary'}" onclick="App.updateTaskStatus(${t.id}, '${nextStatus}')">${nextLabel}</button>
+          ` : ''}
         </div>
       </div>
     `;
@@ -1019,8 +1138,8 @@ const App = (() => {
         method: 'PATCH',
         body: JSON.stringify({ status: newStatus })
       });
-      if (updated.next_recurring_task) {
-        showToast(`🔁 Tarefa concluída! Próxima criada para ${formatDate(updated.next_recurring_task.due_date)}`);
+      if (updated.cycle_completed || updated.streak_incremented) {
+        showToast(`🔥 Ofensiva aumentada! ${updated.streak_count} dia${updated.streak_count > 1 ? 's' : ''} seguidos! Próximo ciclo: ${formatDate(updated.next_due_date)}`);
       } else if (newStatus === 'done') {
         showToast('✓ Tarefa concluída!');
       }
@@ -2035,6 +2154,11 @@ const App = (() => {
     saveNote,
     deleteNote,
     setTaskMode,
+    toggleDoneColumn,
+    loadMoreDoneTasks,
+    archiveAllDoneTasks,
+    loadArchivedTasks,
+    unarchiveTask,
     filterTasks,
     searchTasksClientSide,
     openTaskModal,
