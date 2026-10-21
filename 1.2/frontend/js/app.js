@@ -221,12 +221,13 @@ const App = (() => {
       } else {
         urgentList.innerHTML = dueTasks.slice(0, 5).map(t => `
           <div class="task-card" style="margin-bottom:8px;">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
-              <span class="task-title" style="font-size:0.875rem;">${escapeHtml(t.title)}</span>
-              <div style="display:flex; gap:4px; align-items:center;">
-                ${t.recurrence && t.recurrence !== 'nenhuma' ? `<span class="badge badge-recurring">🔁 ${escapeHtml(t.recurrence)}</span>` : ''}
+            <div class="card-header">
+              <div class="card-badges">
+                ${Number(t.streak_count || 0) > 0 ? `<span class="badge badge-streak">🔥 ${t.streak_count} dia${t.streak_count > 1 ? 's' : ''}</span>` : ''}
+                ${t.recurrence && t.recurrence !== 'nenhuma' ? `<span class="badge badge-recurring">🔄 ${escapeHtml(t.recurrence)}</span>` : ''}
                 <span class="badge badge-${t.priority}">${t.priority}</span>
               </div>
+              <h3 class="task-title">${escapeHtml(t.title)}</h3>
             </div>
             <div class="task-meta" style="margin-top:6px;">
               ${t.due_date ? `<span>📅 ${formatDate(t.due_date)}</span>` : ''}
@@ -1099,13 +1100,13 @@ const App = (() => {
 
     return `
       <div class="task-card">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
-          <h4 class="task-title">${escapeHtml(t.title)}</h4>
-          <div style="display:flex; gap:4px; align-items:center; flex-shrink:0; flex-wrap:wrap; justify-content:flex-end;">
+        <div class="card-header">
+          <div class="card-badges">
             ${streak > 0 ? `<span class="badge badge-streak" title="Ofensiva diária consecutiva">🔥 ${streak} dia${streak > 1 ? 's' : ''}</span>` : ''}
-            ${hasRec ? `<span class="badge badge-recurring">🔁 ${escapeHtml(t.recurrence)}</span>` : ''}
+            ${hasRec ? `<span class="badge badge-recurring">🔄 ${escapeHtml(t.recurrence)}</span>` : ''}
             <span class="badge badge-${t.priority}">${t.priority}</span>
           </div>
+          <h3 class="task-title">${escapeHtml(t.title)}</h3>
         </div>
         ${t.description ? `<p style="font-size:0.8125rem; color:var(--text-secondary); margin-bottom:8px;">${escapeHtml(t.description)}</p>` : ''}
         <div class="task-meta">

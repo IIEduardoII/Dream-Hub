@@ -692,12 +692,30 @@ input, textarea, select, button {
   position: relative;
 }
 
+.card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .task-title {
+  font-size: 1rem;
   font-weight: 600;
-  font-size: 0.9375rem;
-  color: var(--text-primary);
-  margin-bottom: 6px;
-  word-break: break-word;
+  color: #ffffff;
+  margin: 0;
+  line-height: 1.3;
+  width: 100%;
+  word-break: normal;
+  overflow-wrap: break-word;
 }
 
 .task-meta {
