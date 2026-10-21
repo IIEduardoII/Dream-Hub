@@ -154,9 +154,24 @@ class NexusBackendTestCase(unittest.TestCase):
         patch_res = self.client.patch(f'/api/tasks/{task_id}/status', json={'status': 'concluida'})
         self.assertEqual(patch_res.status_code, 200)
         patch_data = patch_res.get_json()
-        self.assertEqual(patch_data['status'], 'done')
-        self.assertIsNotNone(patch_data.get('next_recurring_task'))
-        self.assertEqual(patch_data['next_recurring_task']['due_date'], '2026-10-21')
+
+        # Solução 1: Tarefa Mestre (Reciclagem Instantânea sem duplicação no Kanban)
+        self.assertTrue(patch_data.get('streak_incremented'))
+        self.assertEqual(patch_data.get('streak_count'), 1)
+        self.assertEqual(patch_data['due_date'], '2026-10-21')
+        self.assertEqual(patch_data['status'], 'todo')
+
+        # Garante que existe apenas 1 card no Kanban (sem duplicação de cards)
+        tasks_list = self.client.get('/api/tasks').get_json()
+        self.assertEqual(len(tasks_list), 1)
+        self.assertEqual(tasks_list[0]['id'], task_id)
+        self.assertEqual(tasks_list[0]['streak_count'], 1)
+
+        # Garante que o histórico silencioso foi registrado em task_completions
+        comp_res = self.client.get(f'/api/tasks/{task_id}/completions')
+        self.assertEqual(comp_res.status_code, 200)
+        completions = comp_res.get_json()
+        self.assertEqual(len(completions), 1)
 
     # --- Time & Pomodoro Module ---
     def test_time_sessions(self):
@@ -417,7 +432,29 @@ class NexusBackendTestCase(unittest.TestCase):
         backup_res = self.client.get('/api/system/backup')
         self.assertEqual(backup_res.status_code, 200)
         self.assertTrue(backup_res.data.startswith(b'SQLite format 3'))
-        backup_res.close()
+    def test_task_archive_and_auto_archive(self):
+        # Create regular task and complete it
+        res = self.client.post('/api/tasks', json={'title': 'Tarefa Regular Feita', 'priority': 'low'})
+        task_id = res.get_json()['id']
+        self.client.patch(f'/api/tasks/{task_id}/status', json={'status': 'done'})
+
+        # Archive manually
+        arc_res = self.client.post(f'/api/tasks/{task_id}/archive')
+        self.assertEqual(arc_res.status_code, 200)
+        self.assertEqual(arc_res.get_json()['status'], 'archived')
+
+        # Regular task list should not include archived
+        active_tasks = self.client.get('/api/tasks').get_json()
+        self.assertEqual(len([t for t in active_tasks if t['id'] == task_id]), 0)
+
+        # Archived endpoint should list it
+        archived_tasks = self.client.get('/api/tasks?status=archived').get_json()
+        self.assertTrue(any(t['id'] == task_id for t in archived_tasks))
+
+        # Unarchive
+        unarc_res = self.client.post(f'/api/tasks/{task_id}/archive')
+        self.assertEqual(unarc_res.status_code, 200)
+        self.assertEqual(unarc_res.get_json()['status'], 'todo')
 
 if __name__ == '__main__':
     unittest.main()

@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
     goal_id INTEGER REFERENCES goals(id) ON DELETE SET NULL,
     recurrence TEXT NOT NULL DEFAULT 'nenhuma',
+    streak_count INTEGER DEFAULT 0,
     estimated_pomodoros INTEGER DEFAULT 1,
     completed_pomodoros INTEGER DEFAULT 0,
     pomodoro_duration_minutes INTEGER DEFAULT 25,
@@ -59,6 +60,16 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date);
 CREATE INDEX IF NOT EXISTS idx_tasks_due_status ON tasks(due_date, status);
+
+CREATE TABLE IF NOT EXISTS task_completions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    completed_at TEXT NOT NULL,
+    pomodoros_completed INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_completions_task_id ON task_completions(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_completions_completed_at ON task_completions(completed_at);
 
 CREATE TABLE IF NOT EXISTS time_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -241,6 +252,8 @@ def init_db(db_path: str):
                 (name, color, icon, now)
             )
 
+        _ensure_column(conn, 'tasks', 'streak_count', 'INTEGER DEFAULT 0')
+
         # Migrate any legacy v1.1 root recurring transactions into recurring_rules
         legacy_rec = conn.execute("""
             SELECT * FROM transactions
@@ -273,6 +286,48 @@ def init_db(db_path: str):
                 "UPDATE transactions SET recurring_rule_id = ? WHERE id = ?",
                 (cur.lastrowid, row['id'])
             )
+
+        # Consolidate legacy duplicate recurring task cards into Master Cards with streaks and completion logs
+        all_rec_tasks = conn.execute("""
+            SELECT id, title, recurrence, status, due_date, completed_pomodoros, completed_at
+            FROM tasks
+            WHERE recurrence != 'nenhuma'
+            ORDER BY LOWER(TRIM(title)), id ASC
+        """).fetchall()
+
+        from collections import defaultdict
+        grouped_tasks = defaultdict(list)
+        for t in all_rec_tasks:
+            t_key = (t['title'].strip().lower(), t['recurrence'])
+            grouped_tasks[t_key].append(t)
+
+        for t_key, instances in grouped_tasks.items():
+            if len(instances) > 1:
+                # Active master card preference: non-done with max id, or latest id
+                active_cards = [i for i in instances if i['status'] in ('todo', 'in_progress')]
+                master = active_cards[-1] if active_cards else instances[-1]
+                streak = 0
+                for inst in instances:
+                    if inst['id'] != master['id']:
+                        if inst['status'] == 'done':
+                            c_date = inst['completed_at'] or inst['due_date'] or now
+                            conn.execute("""
+                                INSERT INTO task_completions (task_id, completed_at, pomodoros_completed)
+                                VALUES (?, ?, ?)
+                            """, (master['id'], c_date, inst['completed_pomodoros'] or 0))
+                            streak += 1
+                        # Re-point associated records to master task
+                        conn.execute("UPDATE time_sessions SET task_id = ? WHERE task_id = ?", (master['id'], inst['id']))
+                        conn.execute("UPDATE attachments SET entity_id = ? WHERE entity_type = 'task' AND entity_id = ?", (master['id'], inst['id']))
+                        conn.execute("UPDATE transactions SET task_id = ? WHERE task_id = ?", (master['id'], inst['id']))
+                        conn.execute("DELETE FROM tasks WHERE id = ?", (inst['id'],))
+
+                if streak > 0:
+                    conn.execute("""
+                        UPDATE tasks
+                        SET streak_count = COALESCE(streak_count, 0) + ?
+                        WHERE id = ?
+                    """, (streak, master['id']))
 
         conn.commit()
     finally:

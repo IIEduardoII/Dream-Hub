@@ -836,39 +836,75 @@ def create_app(test_config=None):
         return jsonify([dict_from_row(r) for r in rows])
 
     # ------------------- Tasks Module -------------------
-    def _create_recurring_clone_if_needed(conn: sqlite3.Connection, task_dict: dict, prev_status: str, new_status: str):
+    def _process_task_completion_or_recurrence(conn: sqlite3.Connection, task_dict: dict, prev_status: str, new_status: str):
+        """
+        Solução 1: Conceito de 'Tarefa Mestre' (Recorrência Sem Poluição e Gamificação com Streaks).
+        Em vez de clonar o card no banco de dados a cada ciclo:
+        1) Registra histórico de realização na tabela `task_completions`.
+        2) Incrementa streak_count (Ofensiva 🔥).
+        3) Atualiza a própria tarefa mestre: avança a due_date para o próximo ciclo,
+           reseta completed_pomodoros para 0 e mantém o card em 'todo' para o próximo ciclo.
+        """
         rec = normalize_recurrence(task_dict.get('recurrence', 'nenhuma'))
-        if prev_status != 'done' and new_status == 'done' and rec != 'nenhuma':
-            next_due = compute_next_due_date(task_dict.get('due_date'), rec)
-            now = datetime.now().isoformat()
-            cur = conn.execute("""
-                INSERT INTO tasks (
-                    title, description, status, priority, due_date, category, category_id, goal_id,
-                    recurrence, estimated_pomodoros, completed_pomodoros,
-                    pomodoro_duration_minutes, created_at, updated_at
-                )
-                VALUES (?, ?, 'todo', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-            """, (
-                task_dict['title'],
-                task_dict.get('description', ''),
-                task_dict['priority'],
-                next_due,
-                task_dict.get('category', 'Geral'),
-                task_dict.get('category_id'),
-                task_dict.get('goal_id'),
-                rec,
-                task_dict.get('estimated_pomodoros', 1),
-                task_dict.get('pomodoro_duration_minutes', 25),
-                now,
-                now
-            ))
-            new_row = conn.execute("SELECT * FROM tasks WHERE id = ?", (cur.lastrowid,)).fetchone()
-            return dict_from_row(new_row)
+        task_id = task_dict['id']
+        now = datetime.now().isoformat()
+
+        if prev_status != 'done' and new_status == 'done':
+            # 1) Registra no histórico silencioso de conclusões
+            conn.execute("""
+                INSERT INTO task_completions (task_id, completed_at, pomodoros_completed)
+                VALUES (?, ?, ?)
+            """, (task_id, now, task_dict.get('completed_pomodoros', 0)))
+
+            # 2) Incrementa meta se houver vínculo
+            if task_dict.get('goal_id'):
+                increment_goal_progress(conn, task_dict['goal_id'], 1.0)
+
+            # 3) Se for recorrente: recicla a tarefa mestre com nova data e streak sem clonar
+            if rec != 'nenhuma':
+                next_due = compute_next_due_date(task_dict.get('due_date'), rec)
+                new_streak = (task_dict.get('streak_count') or 0) + 1
+
+                conn.execute("""
+                    UPDATE tasks
+                    SET status = 'todo',
+                        due_date = ?,
+                        streak_count = ?,
+                        completed_pomodoros = 0,
+                        completed_at = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                """, (next_due, new_streak, now, now, task_id))
+
+                updated_row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+                res = dict_from_row(updated_row)
+                res['cycle_completed'] = True
+                res['streak_incremented'] = True
+                res['next_due_date'] = next_due
+                res['streak_count'] = new_streak
+                return res
+
         return None
 
     @app.route('/api/tasks', methods=['GET', 'POST'])
     def handle_tasks():
         conn = get_db()
+
+        # Solução 2: Regra de Arquivamento Automático (24 Horas)
+        # Tarefas regulares não-recorrentes concluídas há mais de 24 horas são arquivadas
+        try:
+            conn.execute("""
+                UPDATE tasks
+                SET status = 'archived', updated_at = datetime('now')
+                WHERE status = 'done'
+                  AND recurrence = 'nenhuma'
+                  AND completed_at IS NOT NULL
+                  AND completed_at < datetime('now', '-24 hours')
+            """)
+            conn.commit()
+        except Exception:
+            pass
+
         if request.method == 'POST':
             data = request.get_json() or {}
             title = (data.get('title') or '').strip()
@@ -883,6 +919,7 @@ def create_app(test_config=None):
             category_id = resolve_category_id(conn, category, data.get('category_id'))
             goal_id = int(data['goal_id']) if data.get('goal_id') else None
             recurrence = normalize_recurrence(data.get('recurrence', 'nenhuma'))
+            streak_count = int(data.get('streak_count') or 0)
             estimated = int(data.get('estimated_pomodoros') or 1)
             pomodoro_duration = int(data.get('pomodoro_duration_minutes') or 25)
             now = datetime.now().isoformat()
@@ -891,13 +928,13 @@ def create_app(test_config=None):
             cur = conn.execute("""
                 INSERT INTO tasks (
                     title, description, status, priority, due_date, category, category_id, goal_id,
-                    recurrence, estimated_pomodoros, completed_pomodoros,
+                    recurrence, streak_count, estimated_pomodoros, completed_pomodoros,
                     pomodoro_duration_minutes, created_at, updated_at, completed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
             """, (
                 title, description, status, priority, due_date, category, category_id, goal_id,
-                recurrence, estimated, pomodoro_duration, now, now, completed_at
+                recurrence, streak_count, estimated, pomodoro_duration, now, now, completed_at
             ))
             conn.commit()
             new_id = cur.lastrowid
@@ -909,10 +946,13 @@ def create_app(test_config=None):
         priority = request.args.get('priority')
         category = request.args.get('category')
         due_date = request.args.get('due_date')
+        q = request.args.get('q')
+        include_archived = request.args.get('include_archived') in ('1', 'true')
 
         query = """
             SELECT t.*,
-                   (SELECT COUNT(*) FROM attachments a WHERE a.entity_type = 'task' AND a.entity_id = t.id) as attachments_count
+                   (SELECT COUNT(*) FROM attachments a WHERE a.entity_type = 'task' AND a.entity_id = t.id) as attachments_count,
+                   (SELECT COUNT(*) FROM task_completions tc WHERE tc.task_id = t.id) as completions_count
             FROM tasks t
             WHERE 1=1
         """
@@ -920,6 +960,9 @@ def create_app(test_config=None):
         if status:
             query += " AND t.status = ?"
             params.append(normalize_task_status(status))
+        elif not include_archived:
+            query += " AND t.status != 'archived'"
+
         if priority:
             query += " AND t.priority = ?"
             params.append(normalize_task_priority(priority))
@@ -929,6 +972,9 @@ def create_app(test_config=None):
         if due_date:
             query += " AND t.due_date = ?"
             params.append(due_date)
+        if q:
+            query += " AND (t.title LIKE ? OR t.description LIKE ? OR t.category LIKE ?)"
+            params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
 
         query += " ORDER BY CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, CASE WHEN t.due_date IS NULL THEN 1 ELSE 0 END, t.due_date ASC, t.id DESC"
         rows = conn.execute(query, params).fetchall()
@@ -948,6 +994,11 @@ def create_app(test_config=None):
                 (task_id,)
             ).fetchall()
             d['attachments'] = [dict_from_row(a) for a in atts]
+            cmps = conn.execute(
+                "SELECT * FROM task_completions WHERE task_id = ? ORDER BY completed_at DESC",
+                (task_id,)
+            ).fetchall()
+            d['completions'] = [dict_from_row(c) for c in cmps]
             return jsonify(d)
 
         if request.method == 'DELETE':
@@ -971,6 +1022,7 @@ def create_app(test_config=None):
         category_id = resolve_category_id(conn, category, data.get('category_id', current.get('category_id')))
         goal_id = int(data['goal_id']) if data.get('goal_id') else (None if 'goal_id' in data else current.get('goal_id'))
         recurrence = normalize_recurrence(data['recurrence']) if 'recurrence' in data else normalize_recurrence(current.get('recurrence', 'nenhuma'))
+        streak_count = int(data.get('streak_count', current.get('streak_count', 0)))
         estimated = data.get('estimated_pomodoros', current['estimated_pomodoros'])
         completed = data.get('completed_pomodoros', current['completed_pomodoros'])
         pomodoro_duration = data.get('pomodoro_duration_minutes', current.get('pomodoro_duration_minutes', 25))
@@ -979,27 +1031,24 @@ def create_app(test_config=None):
         conn.execute("""
             UPDATE tasks
             SET title = ?, description = ?, status = ?, priority = ?, due_date = ?, category = ?,
-                category_id = ?, goal_id = ?, recurrence = ?, estimated_pomodoros = ?, completed_pomodoros = ?,
+                category_id = ?, goal_id = ?, recurrence = ?, streak_count = ?, estimated_pomodoros = ?, completed_pomodoros = ?,
                 pomodoro_duration_minutes = ?, updated_at = ?, completed_at = ?
             WHERE id = ?
         """, (
             title, description, status, priority, due_date, category,
-            category_id, goal_id, recurrence, estimated, completed,
+            category_id, goal_id, recurrence, streak_count, estimated, completed,
             pomodoro_duration, now, completed_at, task_id
         ))
 
-        if prev_status != 'done' and status == 'done' and goal_id:
-            increment_goal_progress(conn, goal_id, 1.0)
-
-        updated_row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-        updated_dict = dict_from_row(updated_row)
-
-        next_task = _create_recurring_clone_if_needed(conn, updated_dict, prev_status, status)
+        # Check for Master Card recurrence or standard completion
+        master_cycle = _process_task_completion_or_recurrence(conn, current, prev_status, status)
         conn.commit()
 
-        if next_task:
-            updated_dict['next_recurring_task'] = next_task
-        return jsonify(updated_dict)
+        if master_cycle:
+            return jsonify(master_cycle)
+
+        updated_row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        return jsonify(dict_from_row(updated_row))
 
     @app.route('/api/tasks/<int:task_id>/status', methods=['PATCH', 'POST'])
     def patch_task_status(task_id):
@@ -1026,18 +1075,50 @@ def create_app(test_config=None):
             WHERE id = ?
         """, (new_status, now, completed_at, task_id))
 
-        if prev_status != 'done' and new_status == 'done' and current.get('goal_id'):
-            increment_goal_progress(conn, current['goal_id'], 1.0)
-
-        updated_row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-        updated_dict = dict_from_row(updated_row)
-
-        next_task = _create_recurring_clone_if_needed(conn, updated_dict, prev_status, new_status)
+        master_cycle = _process_task_completion_or_recurrence(conn, current, prev_status, new_status)
         conn.commit()
 
-        if next_task:
-            updated_dict['next_recurring_task'] = next_task
-        return jsonify(updated_dict)
+        if master_cycle:
+            return jsonify(master_cycle)
+
+        updated_row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        return jsonify(dict_from_row(updated_row))
+
+    @app.route('/api/tasks/<int:task_id>/completions', methods=['GET'])
+    def task_completions(task_id):
+        conn = get_db()
+        rows = conn.execute("""
+            SELECT * FROM task_completions
+            WHERE task_id = ?
+            ORDER BY completed_at DESC
+        """, (task_id,)).fetchall()
+        return jsonify([dict_from_row(r) for r in rows])
+
+    @app.route('/api/tasks/<int:task_id>/archive', methods=['POST'])
+    def archive_task(task_id):
+        conn = get_db()
+        task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if not task:
+            return jsonify({'status': 'error', 'error': 'Tarefa não encontrada'}), 404
+        current_status = task['status']
+        new_status = 'todo' if current_status == 'archived' else 'archived'
+        now = datetime.now().isoformat()
+        conn.execute("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?", (new_status, now, task_id))
+        conn.commit()
+        updated = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        return jsonify(dict_from_row(updated))
+
+    @app.route('/api/tasks/archive_all_done', methods=['POST'])
+    def archive_all_done():
+        conn = get_db()
+        now = datetime.now().isoformat()
+        cur = conn.execute("""
+            UPDATE tasks
+            SET status = 'archived', updated_at = ?
+            WHERE status = 'done' AND recurrence = 'nenhuma'
+        """, (now,))
+        conn.commit()
+        return jsonify({'status': 'success', 'archived_count': cur.rowcount})
 
     # ------------------- Time / Pomodoro Module -------------------
     @app.route('/api/time/sessions', methods=['GET', 'POST'])

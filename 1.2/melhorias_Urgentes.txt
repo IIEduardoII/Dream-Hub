@@ -1,0 +1,91 @@
+================================================================================
+PLANO TÉCNICO DE MELHORIAS: KANBAN E TAREFAS RECORRENTES
+================================================================================
+
+1. DIAGNÓSTICO DO PROBLEMA ATUAL
+--------------------------------------------------------------------------------
+- Proliferação de Cards: A cada novo dia ou ciclo, uma tarefa recorrente (ex: 
+  "Estudo IA") gera uma nova instância de card. Isso faz com que a mesma tarefa 
+  apareça simultaneamente em "A Fazer" (com a data de hoje) e em "Concluído" 
+  (com as datas anteriores).
+- Degradação Visual a Longo Prazo: O acúmulo contínuo na coluna de concluídos 
+  cria uma "fileira infinita", dificultando a navegação, busca e análise rápida 
+  do progresso.
+
+
+2. SOLUÇÃO 1: CONCEITO DE "TAREFA MESTRE" (RECORRÊNCIA SEM POLUIÇÃO)
+--------------------------------------------------------------------------------
+Em vez de clonar o card no banco de dados a cada ciclo, adota-se uma única 
+entidade no Kanban com transição controlada de ciclo:
+
+A) Instância Única no Kanban:
+   - A tarefa "Estudo IA" existe apenas uma vez no quadro visual.
+   - O card exibe a tag "DIÁRIA" e a data atual/próxima execução.
+
+B) Fluxo de Conclusão e Renovação:
+   - Quando o usuário clica em "Concluir":
+     Opção A (Transição Imediata): O card vai para "Concluído", mas às 00:00 
+     (meia-noite) o sistema roda um cron/job que atualiza a data de vencimento 
+     para o dia seguinte e move o card de volta para "A Fazer".
+     Opção B (Reciclagem Instantânea): Ao concluir no dia, o sistema contabiliza 
+     o ponto do dia, incrementa o Streak, altera a data para o dia seguinte e 
+     mantém o card aguardando o próximo ciclo sem duplicar itens.
+
+C) Gamificação (Streaks / Ofensiva):
+   - No próprio card, adiciona-se um indicador: "🔥 5 dias seguidos".
+   - Isso substitui a necessidade de manter vários cards antigos na coluna 
+     "Concluído" para provar constância.
+
+
+3. ARQUITETURA DE BANCO DE DADOS SUGERIDA
+--------------------------------------------------------------------------------
+Para não perder o histórico das realizações sem sobrecarregar a interface:
+
+Tabela: TASKS (Apenas o que renderiza no Kanban)
+- id (UUID / Int)
+- title (String) -> ex: "Estudo IA"
+- is_recurring (Boolean) -> true
+- recurrence_type (Enum) -> 'DAILY', 'WEEKLY', 'MONTHLY'
+- current_due_date (Date) -> 2026-10-21
+- status (Enum) -> 'TODO', 'DOING', 'DONE'
+- streak_count (Int) -> 2
+
+Tabela: TASK_COMPLETIONS (Tabela silenciosa de histórico / relatórios)
+- id (UUID / Int)
+- task_id (Foreign Key -> TASKS.id)
+- completed_at (Timestamp) -> 2026-10-20 18:30:00
+- pomodoros_completed (Int) -> 1
+
+
+4. SOLUÇÃO 2: GESTÃO DE VOLUME E ACÚMULO NA INTERFACE
+--------------------------------------------------------------------------------
+Para evitar a rolagem infinita e facilitar a localização de tarefas:
+
+A) Regra de Arquivamento Automático (24 Horas):
+   - Tarefas regulares (não recorrentes) concluídas permanecem na coluna 
+     "Concluído" apenas durante o dia corrente.
+   - Passadas 24 horas, o sistema altera o status para 'ARCHIVED'.
+   - O quadro visual permanece enxuto, e os cards antigos ficam acessíveis 
+     apenas em uma aba dedicada chamada "Histórico / Arquivo".
+
+B) Campo de Busca Dinâmica (Search Input):
+   - Adicionar uma barra de texto no topo: [ 🔍 Buscar tarefa... ].
+   - Filtro em tempo real (client-side ou debounce) por título, tag e categoria.
+
+C) Alternador de Visibilidade (Toggle "Ocultar Concluídas"):
+   - Um botão liga/desliga no cabeçalho para recolher ou ocultar a coluna 
+     "Concluído" quando o foco do usuário estiver estritamente na execução.
+
+D) Paginação / Limite de Renderização (Lazy Loading):
+   - Definir limite de visualização inicial (ex: 8 cards por coluna).
+   - Exibir botão discreto no rodapé da coluna: "Carregar anteriores (+5)".
+
+
+5. ROTEIRO RÁPIDO DE IMPLEMENTAÇÃO
+--------------------------------------------------------------------------------
+Passo 1: Ajustar a query de busca do Kanban para filtrar apenas `status != 'ARCHIVED'`.
+Passo 2: Criar a tabela `task_completions` para armazenar o log diário das tarefas.
+Passo 3: No endpoint de conclusão de tarefa recorrente, salvar o log em 
+         `task_completions` e avançar a `due_date` do card principal sem duplicá-lo.
+Passo 4: Incluir o campo de pesquisa textual na barra superior de filtros.
+================================================================================

@@ -128,12 +128,19 @@
       </div>
 
       <div class="form-group" style="margin-bottom:10px;">
-        <input type="search" id="tasks-search-input" class="form-input" placeholder="🔍 Filtrar tarefas instantaneamente por título, categoria ou nota..." oninput="App.searchTasksClientSide(this.value)">
+        <input type="search" id="tasks-search-input" class="form-input" placeholder="🔍 Buscar tarefa por título, categoria ou tag..." oninput="App.searchTasksClientSide(this.value)">
       </div>
 
-      <div class="view-switch">
-        <button class="switch-btn active" id="btn-kanban-mode" onclick="App.setTaskMode('kanban')">Quadro Kanban</button>
-        <button class="switch-btn" id="btn-list-mode" onclick="App.setTaskMode('list')">Modo Lista</button>
+      <div class="view-switch" style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:10px;">
+        <div style="display:flex; gap:4px; flex-wrap:wrap;">
+          <button class="switch-btn active" id="btn-kanban-mode" onclick="App.setTaskMode('kanban')">Quadro Kanban</button>
+          <button class="switch-btn" id="btn-list-mode" onclick="App.setTaskMode('list')">Modo Lista</button>
+          <button class="switch-btn" id="btn-archived-mode" onclick="App.setTaskMode('archived')">📦 Arquivo</button>
+        </div>
+        <div style="display:flex; gap:6px; margin-left:auto;">
+          <button class="btn btn-secondary btn-sm" id="btn-toggle-done-col" onclick="App.toggleDoneColumn()" title="Alternar visibilidade da coluna Concluído">👁️ Ocultar Concluídas</button>
+          <button class="btn btn-secondary btn-sm" onclick="App.archiveAllDoneTasks()" title="Arquivar tarefas concluídas do quadro">🧹 Arquivar</button>
+        </div>
       </div>
 
       <div class="actions-bar" id="task-filter-bar">
@@ -168,10 +175,14 @@
             <span class="col-count" id="count-done">0</span>
           </div>
           <div class="col-tasks" id="tasks-list-done"></div>
+          <div id="done-load-more-container" style="display:none; padding:8px 0; text-align:center;">
+            <button class="btn btn-secondary btn-sm" style="width:100%;" id="btn-load-more-done" onclick="App.loadMoreDoneTasks()">Carregar anteriores (+5)</button>
+          </div>
         </div>
       </div>
 
       <div id="tasks-flat-container" style="display:none;"></div>
+      <div id="tasks-archived-container" style="display:none;"></div>
     </section>
 
     <!-- 3. GESTÃO FINANCEIRA COM SUB-ABAS (Section 6.2: Extrato | Contas Fixas | Projeção) -->
