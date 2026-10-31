@@ -1,91 +1,132 @@
 ================================================================================
-PLANO TÉCNICO DE MELHORIAS: KANBAN E TAREFAS RECORRENTES
+GUIA DE CORREÇÃO: QUEBRA DE LINHA E LAYOUT DOS CARDS NO KANBAN
 ================================================================================
 
-1. DIAGNÓSTICO DO PROBLEMA ATUAL
+1. DIAGNÓSTICO DO ERRO
 --------------------------------------------------------------------------------
-- Proliferação de Cards: A cada novo dia ou ciclo, uma tarefa recorrente (ex: 
-  "Estudo IA") gera uma nova instância de card. Isso faz com que a mesma tarefa 
-  apareça simultaneamente em "A Fazer" (com a data de hoje) e em "Concluído" 
-  (com as datas anteriores).
-- Degradação Visual a Longo Prazo: O acúmulo contínuo na coluna de concluídos 
-  cria uma "fileira infinita", dificultando a navegação, busca e análise rápida 
-  do progresso.
+No layout atual, o título ("Estudo IA", "Academia") e as badges ("🔥 2 dias", 
+"DIÁRIA", "HIGH") estão compartilhando a mesma linha em um contêiner flexível 
+(display: flex; flex-direction: row;).
+
+Como as colunas do Kanban têm largura fixa e as badges possuem largura rígida, 
+o contêiner do título é comprimido até restar espaço apenas para poucas letras, 
+provocando a quebra silábica indesejada ("Estu / do / IA").
 
 
-2. SOLUÇÃO 1: CONCEITO DE "TAREFA MESTRE" (RECORRÊNCIA SEM POLUIÇÃO)
+2. SOLUÇÃO RECOMENDADA (ABORDAGEM EM COLUNA: 100% DE LARGURA PARA O TÍTULO)
 --------------------------------------------------------------------------------
-Em vez de clonar o card no banco de dados a cada ciclo, adota-se uma única 
-entidade no Kanban com transição controlada de ciclo:
+A melhor prática para cards verticais de Kanban é separar o cabeçalho em duas 
+camadas: as etiquetas de identificação no topo e o título logo abaixo, livre 
+para ocupar toda a extensão horizontal do card.
 
-A) Instância Única no Kanban:
-   - A tarefa "Estudo IA" existe apenas uma vez no quadro visual.
-   - O card exibe a tag "DIÁRIA" e a data atual/próxima execução.
+--- [OPÇÃO 1A: IMPLEMENTAÇÃO EM TAILWIND CSS] ---
 
-B) Fluxo de Conclusão e Renovação:
-   - Quando o usuário clica em "Concluir":
-     Opção A (Transição Imediata): O card vai para "Concluído", mas às 00:00 
-     (meia-noite) o sistema roda um cron/job que atualiza a data de vencimento 
-     para o dia seguinte e move o card de volta para "A Fazer".
-     Opção B (Reciclagem Instantânea): Ao concluir no dia, o sistema contabiliza 
-     o ponto do dia, incrementa o Streak, altera a data para o dia seguinte e 
-     mantém o card aguardando o próximo ciclo sem duplicar itens.
+Substitua o cabeçalho do card por:
 
-C) Gamificação (Streaks / Ofensiva):
-   - No próprio card, adiciona-se um indicador: "🔥 5 dias seguidos".
-   - Isso substitui a necessidade de manter vários cards antigos na coluna 
-     "Concluído" para provar constância.
+<div class="flex flex-col gap-1.5 mb-2">
+  <!-- Linha Superior: Badges agrupadas com quebra automática se faltar espaço -->
+  <div class="flex flex-wrap items-center gap-1.5">
+    <!-- Streak -->
+    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-950/60 text-amber-400 border border-amber-800/50">
+      🔥 2 dias
+    </span>
+    <!-- Recorrência -->
+    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">
+      🔄 DIÁRIA
+    </span>
+    <!-- Prioridade -->
+    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-950/60 text-yellow-400 border border-yellow-800/50">
+      HIGH
+    </span>
+  </div>
+
+  <!-- Linha Inferior: Título com largura total -->
+  <h3 class="text-base font-semibold text-white leading-tight break-words">
+    Estudo IA
+  </h3>
+</div>
 
 
-3. ARQUITETURA DE BANCO DE DADOS SUGERIDA
+--- [OPÇÃO 1B: IMPLEMENTAÇÃO EM CSS TRADICIONAL] ---
+
+Estrutura HTML:
+<div class="card-header">
+  <div class="card-badges">
+    <span class="badge badge-streak">🔥 2 dias</span>
+    <span class="badge badge-recurrence">🔄 DIÁRIA</span>
+    <span class="badge badge-priority">HIGH</span>
+  </div>
+  <h3 class="card-title">Estudo IA</h3>
+</div>
+
+Folha de Estilos (CSS):
+.card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0;
+  line-height: 1.3;
+  width: 100%;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+
+3. SOLUÇÃO ALTERNATIVA (MANTER TÍTULO E BADGES LADO A LADO)
 --------------------------------------------------------------------------------
-Para não perder o histórico das realizações sem sobrecarregar a interface:
+Caso queira manter os elementos na mesma linha, você deve permitir que as badges 
+saltem para a linha de baixo caso a coluna aperte, sem esmagar o título.
 
-Tabela: TASKS (Apenas o que renderiza no Kanban)
-- id (UUID / Int)
-- title (String) -> ex: "Estudo IA"
-- is_recurring (Boolean) -> true
-- recurrence_type (Enum) -> 'DAILY', 'WEEKLY', 'MONTHLY'
-- current_due_date (Date) -> 2026-10-21
-- status (Enum) -> 'TODO', 'DOING', 'DONE'
-- streak_count (Int) -> 2
+--- [CSS PARA LADO A LADO FLEXÍVEL] ---
 
-Tabela: TASK_COMPLETIONS (Tabela silenciosa de histórico / relatórios)
-- id (UUID / Int)
-- task_id (Foreign Key -> TASKS.id)
-- completed_at (Timestamp) -> 2026-10-20 18:30:00
-- pomodoros_completed (Int) -> 1
+.card-header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.card-header-row .card-title {
+  flex: 1 1 140px;      /* Garante no mínimo 140px antes de empurrar o resto */
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  word-break: normal;
+  white-space: normal;
+}
+
+.card-header-row .card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex-shrink: 0;
+}
 
 
-4. SOLUÇÃO 2: GESTÃO DE VOLUME E ACÚMULO NA INTERFACE
+4. PONTOS DE ATENÇÃO E REGRAS A REMOVER
 --------------------------------------------------------------------------------
-Para evitar a rolagem infinita e facilitar a localização de tarefas:
+1. Verifique se no título não existe a classe ou estilo:
+   `word-break: break-all;`
+   Essa propriedade obriga o navegador a cortar a palavra no meio de qualquer 
+   sílaba assim que encosta na margem. Substitua por:
+   `word-break: normal;` ou `word-break: keep-all;` com `overflow-wrap: break-word;`.
 
-A) Regra de Arquivamento Automático (24 Horas):
-   - Tarefas regulares (não recorrentes) concluídas permanecem na coluna 
-     "Concluído" apenas durante o dia corrente.
-   - Passadas 24 horas, o sistema altera o status para 'ARCHIVED'.
-   - O quadro visual permanece enxuto, e os cards antigos ficam acessíveis 
-     apenas em uma aba dedicada chamada "Histórico / Arquivo".
-
-B) Campo de Busca Dinâmica (Search Input):
-   - Adicionar uma barra de texto no topo: [ 🔍 Buscar tarefa... ].
-   - Filtro em tempo real (client-side ou debounce) por título, tag e categoria.
-
-C) Alternador de Visibilidade (Toggle "Ocultar Concluídas"):
-   - Um botão liga/desliga no cabeçalho para recolher ou ocultar a coluna 
-     "Concluído" quando o foco do usuário estiver estritamente na execução.
-
-D) Paginação / Limite de Renderização (Lazy Loading):
-   - Definir limite de visualização inicial (ex: 8 cards por coluna).
-   - Exibir botão discreto no rodapé da coluna: "Carregar anteriores (+5)".
-
-
-5. ROTEIRO RÁPIDO DE IMPLEMENTAÇÃO
---------------------------------------------------------------------------------
-Passo 1: Ajustar a query de busca do Kanban para filtrar apenas `status != 'ARCHIVED'`.
-Passo 2: Criar a tabela `task_completions` para armazenar o log diário das tarefas.
-Passo 3: No endpoint de conclusão de tarefa recorrente, salvar o log em 
-         `task_completions` e avançar a `due_date` do card principal sem duplicá-lo.
-Passo 4: Incluir o campo de pesquisa textual na barra superior de filtros.
+2. Certifique-se de que o contêiner das badges tenha `flex-shrink: 0;` para não 
+   distorcer o tamanho dos botões.
 ================================================================================

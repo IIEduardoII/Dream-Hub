@@ -1,0 +1,73 @@
+{
+  "id": "/",
+  "name": "Dream Hub",
+  "short_name": "Dream Hub",
+  "description": "Cockpit Pessoal Unificado: Tarefas, Finanças, Ritmo, Foco, Metas, Sono e Ideias",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "portrait-primary",
+  "prefer_related_applications": false,
+  "categories": ["productivity", "finance", "health", "fitness"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Cockpit Meu Dia",
+      "short_name": "Meu Dia",
+      "description": "Abrir visão geral do dia",
+      "url": "/?tab=overview",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Ritmo & Treinos",
+      "short_name": "Ritmo",
+      "description": "Abrir treinos, rotinas e calendário",
+      "url": "/?tab=ritmo",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Finanças",
+      "short_name": "Finanças",
+      "description": "Abrir extrato e contas fixas",
+      "url": "/?tab=finance",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Tarefas",
+      "short_name": "Tarefas",
+      "description": "Abrir quadro de tarefas",
+      "url": "/?tab=tasks",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ]
+}
